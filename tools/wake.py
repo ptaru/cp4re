@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 """Wake an EZVIZ CP4 camera over the LAN and/or through the EZVIZ cloud.
 
-LAN path (proven on CP4):
-    One ordinary UDP datagram to port 50161 carrying the seven-byte EZLink
-    wake header. No account, cloud connection, replacement bootstrap server,
-    or raw socket is used. The Hi3861L has a stateful repeated-wake defense, so
-    avoid tight retry loops; one packet per invocation is intended. See
-    docs/WAKE.md.
+LAN protocols:
+    --protocol cp4 uses the patched receiver: UDP 50162, exact 12-byte CP4WAKE
+    packet. --protocol oem (default) uses UDP 50161 and the seven-byte EZLink
+    header for unmodified firmware. Each invocation sends one packet.
 
 Cloud path (proven fallback):
     Account login, then the cloud live-view (VTM) handshake. The handshake
@@ -54,6 +52,7 @@ from wake_hold import run_hold
 
 DEFAULT_LAN_PORT = 50161
 DEFAULT_PAYLOAD = "50030000bd0c2f"
+LAN_PROTOCOLS = {"oem": (50161, DEFAULT_PAYLOAD), "cp4": (50162, "43503457414b45015003bd2f")}
 DEFAULT_SSH_PORT = 2222
 DEFAULT_SHELL_PORT = 2323
 DEFAULT_API_URL = "apiieu.ezvizlife.com"
@@ -184,9 +183,10 @@ def main() -> int:
     parser.add_argument("--method", choices=["auto", "lan", "cloud"], default="auto")
     parser.add_argument("--cloud-mode", choices=["preview", "action", "both"],
                         default="preview")
-    parser.add_argument("--lan-port", type=int, default=DEFAULT_LAN_PORT)
-    parser.add_argument("--payload", default=DEFAULT_PAYLOAD,
-                        help="wake payload as hex (default: the CP4 EZLink header)")
+    parser.add_argument("--protocol", choices=LAN_PROTOCOLS, default="oem", help="LAN packet profile: oem for unmodified firmware; cp4 for the patched receiver")
+    parser.add_argument("--lan-port", type=int, default=None)
+    parser.add_argument("--payload", default=None,
+                        help="override the selected protocol payload as hex")
     parser.add_argument("--source-port", type=int, default=0)
     parser.add_argument("--check-port", action="append", type=int, default=None,
                         help="TCP port that indicates the camera is awake; may repeat")
@@ -206,6 +206,10 @@ def main() -> int:
     parser.add_argument("--ssh-port", type=int, default=DEFAULT_SSH_PORT)
     parser.add_argument("--identity", help="SSH private key for hold/release (default: SSH config/agent)")
     args = parser.parse_args()
+
+    profile_port, profile_payload = LAN_PROTOCOLS[args.protocol]
+    args.lan_port = profile_port if args.lan_port is None else args.lan_port
+    args.payload = profile_payload if args.payload is None else args.payload
 
     if args.hold is not None:
         if args.hold != "forever":

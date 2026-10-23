@@ -76,9 +76,10 @@ bootloader, `enc`/OTP, and `/devinfo` were not modified during this research.
   and UDP 50160/50161. Stock firmware exposed no LAN media service.
 - Sleep tears down Linux. Wake starts it again: uptime resets and boot scripts
   rerun. The Wi-Fi MCU can remain connected while Linux is gone.
-- The tested LAN wake is one UDP datagram to **50161**:
-  `50 03 00 00 bd 0c 2f`. The receiver matches selected header bytes and
-  asserts logical GPIO 2. See [WAKE.md](WAKE.md).
+- The patched LAN receiver uses UDP **50162** and exact payload
+  `43503457414b45015003bd2f`. It requests OEM Wi-Fi prewake before asserting
+  logical GPIO 2. The wake tool selects it with `--protocol cp4`.
+  Unmodified firmware uses the default `oem` profile. See [WAKE.md](WAKE.md).
 - SD recordings are event-based `hiv*.mp4` ring files containing MPEG-PS with
   HEVC Annex-B, not a continuous live feed.
 
@@ -86,7 +87,8 @@ bootloader, `enc`/OTP, and `/devinfo` were not modified during this research.
 
 | Endpoint | State | Notes |
 | --- | --- | --- |
-| UDP 50161 | Wake receiver | Works while Linux sleeps. |
+| UDP 50162 | Patched MCU receiver | Fixed 12-byte packet, Wi-Fi prewake and GPIO wake. |
+| UDP 50161 | Unmodified MCU receiver | OEM wake profile. |
 | UDP 50160/50161 | Awake `ezapp` | Ownership depends on lifecycle. |
 | TCP 2222 | Custom image only | Key-only SSH from the modified app0 image; no stock listener. |
 | TCP 2323 | Historical | Raw root shell in early custom images; removed in the current design. |
@@ -123,9 +125,9 @@ useful context:
 
 | Capability | State on the tested unit |
 | --- | --- |
-| LAN wake | Proven in three WAN-isolated tests; no cloud or account needed at wake time. |
+| LAN wake | Patched UDP 50162 receiver passed initial controlled wake checks; long-term behavior and power remain unmeasured. |
 | Cloud wake | Proven through the live-view preview handshake; the IoT SpeedUp action alone was not reliable. |
-| Wi-Fi MCU LAN-gate patch | Removes counter-based wake refusal. A 200-packet test followed by successful sleep and LAN wake supports the patch working in practice. MCU readback, long-term behavior and recovery remain unverified. See [Hi3861L LAN-wake patch](HI3861-LAN-PATCH.md). |
+| Wi-Fi MCU receiver | Independent receiver with 20-second OEM prewake, cooldown and read-only MCU snapshot. Exact builder, explicit updater and temporary Linux reply patch are documented in [Hi3861L receiver](HI3861-LAN-PATCH.md). |
 | Root shell | Key-only SSH on 2222 after installing a modified app0 image; SD hook as a fallback. The build recipe is in [app0 SSH](APP0-SSH.md). |
 | Local upgrade | App-only modified images install and boot; no trailer-version gate was observed. |
 | Firmware acquisition | Device-authenticated MQTT query returned the installed package and an HTTPS URL with MD5/size. |

@@ -291,7 +291,8 @@ Upgrade does not install them. The MCU update path uses the host HCC/`ezapp`
 updater and is a different risk class from replacing `app.img`: there is no
 validated recovery on the tested unit. See the
 [Hi3861L LAN-wake patch](HI3861-LAN-PATCH.md) note before touching MCU
-firmware. The offline OTA inspector and builder are `tools/hi3861_ota.py`;
+firmware. The exact OTA builder is `tools/hi3861_ota.py`; source-only explicit
+flash and diagnostic tools are in `tools/hi3861_flash/` and `tools/hi3861_diag/`;
 see the [patch tooling](HI3861-LAN-PATCH.md#tooling).
 
 ## Secure boot and signing observations

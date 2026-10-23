@@ -32,10 +32,13 @@ firmware images. The tools take those values from you at run time.
 | [`tools/dav.py`](tools/dav.py) | Inspect, verify, unpack, diff, and repack the `SWKH` `.dav` firmware container, including the `app.img` trailer. |
 | [`tools/make_firmware.py`](tools/make_firmware.py) | Build a modified `.dav`: SquashFS an app filesystem, refresh the app trailer, replace `app.img`, and verify. |
 | [`tools/hi3861_ota.py`](tools/hi3861_ota.py) | Validate, unpack, and rebuild the CP4 Hi3861L MCU OTA. The builder is pinned to the documented 2.139 image and performs no device I/O. |
-| [`tools/hi3861_defense.py`](tools/hi3861_defense.py) | Decode and execute the Hi3861L LAN-wake defense routine offline to reproduce its counter behavior. Requires `capstone`. |
+| [`tools/hi3861_wake/`](tools/hi3861_wake/) | Current receiver C/assembly and exact compiled code plan. |
+| [`tools/hi3861_flash/`](tools/hi3861_flash/) | Candidate-pinned Go launcher, preparation probe and explicit MCU updater entry point. |
+| [`tools/hi3861_diag/`](tools/hi3861_diag/) | Read receiver snapshots with a temporary Linux RAM reply patch. |
+| [`tools/video_server/`](tools/video_server/) | Standalone HEVC/AAC HTTP server with client-driven sleep holds; deploy with OEM or patched CP4 LAN wake. |
 | [`tools/probe.py`](tools/probe.py) | Read-only TCP probe for the documented service states. |
 
-The network tools print progress to stderr and a JSON summary to stdout, so
+The wake and firmware network tools print progress to stderr and a JSON summary to stdout, so
 `python tools/wake.py ... | jq .` works. Use `--json-out` to save a report.
 
 The [`examples/app0/`](examples/app0/) directory contains the TinySSH
@@ -45,9 +48,10 @@ the key-only SSH setup. See [app0 SSH](docs/APP0-SSH.md).
 Deeper notes:
 
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.
-- [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, timed/indefinite awake holds, repeated-wake limits, and troubleshooting.
+- [Wake and sleep](docs/WAKE.md) — OEM and patched LAN profiles, cloud wake, timed/indefinite holds and troubleshooting.
+- [Standalone video server PoC](docs/VIDEO-SERVER.md) — build, deployment, HEVC/AAC playback, client-driven sleep holds, validation and troubleshooting.
 - [Firmware](docs/FIRMWARE.md) — the `.dav` container, acquisition protocol, app image format, build and installation procedure, and recovery.
-- [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the wake counter behavior, two-byte code change, OTA packaging, offline builder, and MCU update path.
+- [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the independent receiver, Wi-Fi prewake, exact image build, pinned flash launcher and diagnostics.
 - [app0 SSH](docs/APP0-SSH.md) — patching TinySSH for the non-multiuser kernel, the app0 layout, and the initrun changes.
 - [Protocol](docs/PROTOCOL.md) — the legacy channel-99 authentication and firmware-query protocol.
 
@@ -77,7 +81,8 @@ Deeper notes:
 
 | Endpoint | Meaning |
 | --- | --- |
-| UDP **50161** | Demonstrated LAN wake receiver on the low-power networking side. |
+| UDP **50162** | Patched CP4 wake receiver, fixed 12-byte protocol with Wi-Fi prewake. |
+| UDP **50161** | Unmodified firmware wake profile. |
 | UDP 50160/50161 | Also observed in awake Linux `ezapp`; ownership depends on lifecycle. |
 | TCP **2222** | Key-only SSH **only after** a custom app image is installed. Stock firmware does not expose it. |
 | TCP 2323 | Historical raw root shell in early custom images; removed in the current design. |
@@ -94,20 +99,18 @@ are gone. Do not treat an unreachable shell as proof that the device is off.
 
 ### Wake and sleep
 
-A single ordinary UDP datagram wakes the tested camera:
+The [patched CP4 receiver](docs/HI3861-LAN-PATCH.md) uses one ordinary UDP packet:
 
 ```text
-destination port: 50161
-payload (7 bytes): 50 03 00 00 bd 0c 2f
+destination port: 50162
+payload (12 bytes): 43 50 34 57 41 4b 45 01 50 03 bd 2f
 ```
 
-The receiver matches selected header bytes (selector `53` selects `50`, `03`,
-`bd`, `/`; three bytes are ignored) and asserts logical **GPIO 2** into the
-Novatek power domain. There is no cryptographic authentication, pairing
-lookup, or encrypted-body parser on that matched branch. The payload is an
-EZLink wake pattern supplied by the host library; it is not derived from the
-device serial, but it may be model/firmware specific. The tool lets you
-override it.
+It requests a 20-second OEM Wi-Fi listening boost, sets reason 4 and asserts
+logical GPIO 2. It starts independently of Linux pattern setup, has no cumulative
+wake limit or application packet store, and consumes requests within its one-second
+assertion cooldown. The payload identifies the protocol; it is not authentication.
+Use `--protocol cp4`. Unmodified firmware uses the default `--protocol oem`.
 
 The cloud also wakes the camera. In controlled tests the reliable trigger was
 the cloud **live-view (VTM) preview handshake**, even when the connection was
@@ -173,20 +176,20 @@ can be disrupted. Read [Protocol](docs/PROTOCOL.md) before using
 
 The container, capture, probe, and `hi3861_ota.py` tools use only the Python
 standard library. `get_firmware.py` and the cloud path of `wake.py` use
-`pyezvizapi`, which depends on `cryptography`; `hi3861_defense.py` uses
-`capstone`.
+`pyezvizapi`, which depends on `cryptography`. Optional receiver recompilation
+checks use Zig 0.17 and `pyelftools`; ARM flash/diagnostic helpers need Go.
 
 ### Wake the camera
 
 ```sh
-# LAN first, then the cloud preview fallback if needed.
-python tools/wake.py \
+# Patched LAN protocol first, then cloud preview fallback if needed.
+python tools/wake.py --protocol cp4 \
   --host 192.168.1.50 \
   --serial ABC12345 \
   --account you@example.com
 
 # LAN only; no account or cloud connection.
-python tools/wake.py --host 192.168.1.50 --method lan
+python tools/wake.py --host 192.168.1.50 --protocol cp4 --method lan
 
 # Check what is reachable without waking anything.
 python tools/probe.py --host 192.168.1.50
@@ -275,13 +278,18 @@ python tools/hi3861_ota.py unpack app-root/Hi3861L_ezviz_sdk_ota.bin \
   --out hi3861-unpacked
 python tools/hi3861_ota.py patch app-root/Hi3861L_ezviz_sdk_ota.bin \
   --out hi3861-patch
-python tools/hi3861_defense.py hi3861-patch/Hi3861L_CP4_lan_patch_ota.bin
 ```
 
-`hi3861_ota.py patch` needs a C compiler. It refuses any source other than the
-exact 2.139 image and writes an offline image only; it does not install it.
-`hi3861_defense.py` needs `capstone` and only analyzes a matching kernel. See
-[Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md#tooling).
+`hi3861_ota.py patch` needs a C compiler and refuses a different source or
+result. It writes `Hi3861L_CP4_independent_wake_ota.bin`, `kernel.bin` and a
+manifest; it does not install them. Receiver sources and exact code bytes are
+in `tools/hi3861_wake/`; optional Zig recompilation verifies their equality.
+
+The source-only Go flash launcher and diagnostic reader are in
+`tools/hi3861_flash/` and `tools/hi3861_diag/`. The reader temporarily patches
+Linux's reply switch for the MCU snapshot, validates HCC before/after, and
+restores the instructions. Read the [build, preparation, explicit flash and
+diagnostic instructions](docs/HI3861-LAN-PATCH.md#tooling) before using either.
 
 ---
 
@@ -314,8 +322,9 @@ exact 2.139 image and writes an offline image only; it does not install it.
 
 Demonstrated on the tested unit:
 
-- One UDP packet to 50161 wakes Linux with no cloud dependency at the moment
-  of waking (three WAN-isolated tests; fresh uptime recorded).
+- The patched receiver accepts one UDP 50162 packet and wakes Linux. A
+  controlled post-install wake returned SSH in about 5.6 seconds; long-term
+  reliability and idle power remain unmeasured.
 - The cloud preview handshake wakes the camera as a fallback.
 - The legacy device handshake, DAS redirect, and encrypted MQTT firmware query
   work; the cloud returned the actual installed package when an older version
@@ -326,11 +335,9 @@ Demonstrated on the tested unit:
 - A custom app image can provide key-only SSH on 2222 from `initrun.sh`. The
   patch, app0 layout, and init script are documented in
   [app0 SSH](docs/APP0-SSH.md).
-- A two-byte Hi3861L patch removes the receiver's counter-based wake refusal.
-  Boot, Wi-Fi, sleep and LAN wake worked after installation. A 200-packet test
-  followed by successful sleep and LAN wake supports the patch working in
-  practice. See the
-  [patch reference](docs/HI3861-LAN-PATCH.md) for code, packaging and test limits.
+- The current MCU receiver and Wi-Fi prewake extension installed and booted;
+  snapshots and supported HCC calls passed with Linux instruction restoration
+  verified. See the [receiver reference](docs/HI3861-LAN-PATCH.md).
 
 Not established:
 
@@ -339,12 +346,12 @@ Not established:
 - The same wake payload, update policy, secure-boot state, or shell route on
   other CP4 revisions, models, or firmware versions.
 - A validated recovery path for a boot-looping modified image.
-- A working RTSP server. The internal port-8000 SDK path and a read-only
-  shared-memory media tap are research results, not packaged tools here.
+- A working RTSP server. The [standalone video PoC](docs/VIDEO-SERVER.md)
+  serves HTTP MPEG-PS; the internal port-8000 SDK path remains experimental.
 - The exact PIR sensor wiring, the FM33 wake line, and the full inter-unit
   transport.
-- Hi3861L flash readback, live counter measurement, long-term patched behavior
-  or recovery from an unbootable Wi-Fi MCU.
+- Hi3861L flash readback, measured prewake expiry/power, long-term patched
+  behavior or recovery from an unbootable Wi-Fi MCU.
 
 ---
 
@@ -363,7 +370,9 @@ public/
 │   ├── dav.py
 │   ├── make_firmware.py
 │   ├── hi3861_ota.py
-│   ├── hi3861_defense.py
+│   ├── hi3861_wake/       # Receiver sources and pinned code plan
+│   ├── hi3861_flash/      # Source-only pinned MCU launcher
+│   ├── hi3861_diag/       # Source-only diagnostic reader
 │   ├── hi3861_lzma/
 │   │   ├── encode.c
 │   │   ├── decode.c

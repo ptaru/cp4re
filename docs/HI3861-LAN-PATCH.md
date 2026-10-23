@@ -1,202 +1,215 @@
-# Hi3861L LAN-wake patch
+# Hi3861L LAN wake receiver
 
-The CP4's Hi3861L firmware limits repeated LAN wake requests. A two-byte patch
-removes the receiver's counter-based refusal while preserving packet matching,
-sleep arming and normal GPIO wake handling.
+This patch replaces the CP4 Hi3861L application’s UDP receiver with a fixed
+wake protocol, an application-queue-free receive loop and a temporary Wi-Fi
+listening boost. It targets the exact **2.139** image identified below.
 
-The addresses and image hashes below apply to the CP4 Hi3861L application
-version **2.139**. The patched image was installed on a CP4 and supports normal
-boot, Wi-Fi, SSH and LAN wake. Sleep followed by LAN wake also worked after
-200 paced wake packets, supporting the patch's intended behavior. The patched
-binary and flash launcher are not included in this repository. The offline
-builder and analysis tools in `tools/` can reproduce the image but cannot
-install it.
-
-## Wake counter behavior
-
-During sleep preparation, Linux `ezapp` sends the EZLink pattern to the MCU.
-The MCU's UDP 50161 receiver matches incoming packets against that pattern,
-then calls the defense/statistics routine at `0x420a82` before asserting GPIO 2.
-
-The decoded routine uses 86,400-second MCU run-time buckets:
-
-- A fresh bucket accepts matched packets 1–99 and refuses packet 100 onward.
-- A previous-bucket count of 200 or more can also block acceptance.
-- A gap of more than two buckets resets the state but refuses the first packet.
-- Matched packets count even while Linux is awake.
-
-These thresholds come from instruction-level analysis. MCU time advancement
-during deep sleep has not been measured. The buckets are not UTC calendar days.
-
-Draining buffered packets and rearming the wake pattern do not clear the
-counter globals. An ordinary Linux reboot also leaves the MCU running. A true
-MCU reset can clear the state; no supported host command to reset these
-counters has been identified.
-
-For unmodified firmware, send one packet per wake attempt and wait for Linux
-to boot before retrying. Keep SSH-readiness polling separate from packet
-sending. See [Wake and sleep](WAKE.md) for the packet and sender commands.
-
-## Code change
-
-Replace the conditional branch after the defense call with an unconditional
-jump to the same accepted-packet path:
+## Protocol and behavior
 
 | Item | Value |
 | --- | --- |
-| Runtime address | `0x420dc4` |
-| Expanded image file offset | `0x13dc4` |
-| Original bytes | `09 e5` — `c.bnez a0, +10` |
-| Replacement bytes | `29 a0` — `c.j +10` |
-| Branch target | `0x420dce` |
+| Transport | IPv4 UDP unicast, destination port **50162** |
+| Payload | `43503457414b45015003bd2f` — exactly 12 bytes |
+| Meaning | ASCII `CP4WAKE`, version byte 1, fixed identifier bytes |
+| Accepted wake | Request OEM 20-second prewake, set reason 4, assert logical GPIO 2 |
+| Cooldown | One second between assertions; matching packets inside it are consumed |
+| Packet retention | No application packet store or Linux drain requirement |
+| Replies | None over UDP |
+| Startup | MCU application initialization, independent of Linux wake-pattern setup |
+| Recovery | Retry socket/filter failures and observed association changes |
+| Acknowledgement | Existing GPIO-7/host-ready paths clear the wake output |
 
-The call at `0x420dc0` still runs and updates its counters and logs. Its return
-value no longer blocks the receiver. This applies to every packet reaching
-that branch, including packets other than the seven-byte EZLink wake header.
+The receiver checks exact bytes and length, receiving into a 13-byte buffer to
+reject longer datagrams with a matching prefix. It imposes no cumulative packet
+limit. The underlying network stack still has finite queues and memory. The
+payload is an identifier, not authentication; restrict access to the trusted LAN.
 
-Packet matching, wake reason 4, the GPIO-2 helper, duplicate detection, packet
-buffering, sleep rearm and the `req/8233` prewake classifier remain unchanged.
-Association loss, failed host arming, listener exits and full packet buffers
-can still prevent wake. The patch adds neither cold-start arming nor packet
-authentication. Continue pacing requests to avoid unnecessary host wakes and
-battery use.
+The task uses the existing creation wrapper: priority 25 and a 3072-byte stack.
+It polls `select` with a 250 ms timeout, refreshes the receive filter every ten
+seconds, and recreates the socket after observed network-state changes. These
+intervals require power and long-idle testing; they are not battery guarantees.
+The normal host-sleep filter is also changed to 50162. The default OEM port is
+not the patched MCU receiver’s wake port.
 
-## Image packaging
+### Wi-Fi prewake
 
-The source is `Hi3861L_ezviz_sdk_ota.bin` from app0. It is a compressed MCU
-application OTA, separate from the camera `.dav` package and the flashboot OTA.
+Before GPIO assertion, the receiver calls OEM helper `0x41e5e2(20)`. This is the
+routine used by `EnergySaving/SpeedUpListeningFrequency`. It adjusts Wi-Fi PM
+settings, records an expiry and creates/reuses the `ez_prewake` task. Subsequent
+accepted wakes refresh the window. No MQTT request or fixed pre-GPIO delay is
+required.
 
-| Item | Value |
+The expiry task normally restores sleep/listening settings when the host is
+asleep. The helper’s return value does not indicate task-creation success, so
+the receiver checks the task handle. If absent, it clears the prewake flag and,
+when the host remains asleep, restores the normal `(1,1000)` PM interval.
+GPIO-helper calls are counted as assertions; they do not measure electrical
+edges or prove that Linux subsequently became reachable.
+
+## Image identity and layout
+
+| Item | SHA-256 / size |
 | --- | --- |
-| Source SHA-256 | `e01c4867892f611326c4935abdcfb1d9a6c19629f2953b0cd441fb36578596c2` |
-| Source expanded SHA-256 | `ca5e1a57ff4b4f056f1a279fc0e902605126fd9651444ea9f84096d74bf6d788` |
-| Patched OTA SHA-256 | `5eb5d27c9ac86fc0d9b7a6dc627a5ec1b910e1ccd65290dd7e8e5d0f29f9e734` |
-| Patched expanded SHA-256 | `1ae9f741ce873e2b4aa3f67d73e917b1ca2fa3ff57fb891a308ae80ccc68defb` |
-| OTA size | 552,528 bytes, unchanged |
-| Expanded image size | 911,792 bytes |
-| Expanded differences | Two instruction bytes and the 32-byte inner section hash |
-| Vendor version | 2 / 139, unchanged |
-| Encoder | LZMA SDK 19.00 |
-| LZMA settings | `lc=2, lp=2, pb=2, dict=65536`, 128 fast bytes, normal algorithm, BT4 |
-| Stream framing | Known expanded size in the 13-byte header; no end marker |
+| Source OTA | `e01c4867892f611326c4935abdcfb1d9a6c19629f2953b0cd441fb36578596c2` |
+| Source expanded kernel | `ca5e1a57ff4b4f056f1a279fc0e902605126fd9651444ea9f84096d74bf6d788` |
+| Patched OTA | `951c3e569cd794821637263e805105c65b2e576cdd006f9028c4e3aea49679fb` |
+| Patched expanded kernel | `8d97d46ac40ed36fbf2dbfce593ab12998664a4e80e4756cb6fae960d764accd` |
+| OTA / expanded size | 552,608 / 911,792 bytes |
+| Compressed stream | 551,636 bytes |
+| MCU version | 2.139, unchanged |
 
-To rebuild the image:
+The source is `Hi3861L_ezviz_sdk_ota.bin` inside the camera’s extracted app0
+filesystem, `/dav/Hi3861L_ezviz_sdk_ota.bin` on the running camera. This OTA is
+separate from the `.dav` camera package and flashboot OTA.
 
-1. Check the source hash and original instruction bytes.
-2. Decompress the OTA and apply the two-byte instruction change.
-3. Regenerate the expanded image's section SHA-256.
-4. Recompress using the settings above. First verify that the encoder reproduces
-   the untouched source stream byte-for-byte.
-5. Preserve the common wrapper and total OTA size, adjust payload padding, and
-   regenerate the outer header and section hashes.
-6. Verify all hashes, decompress the result and compare it with the expected
-   expanded image. Only the instruction and inner section hash should differ.
+| MCU address | Change |
+| --- | --- |
+| `0x4209ba–0x420bdf` | Reclaimed receiver/search/defense region; 526/550 bytes used |
+| `0x420be0–0x420ef3` | Replacement receiver and helpers; 784/788 bytes used |
+| `0x41f0d4` | Startup call to bootstrap, preserving GPIO ISR initialization |
+| `0x41dbfa` | Host-sleep receive-filter port immediate, 50162 |
+| `0x4ce3c0` | HCC command-0x12 jump-table entry to snapshot bridge |
 
-The patched stream is six bytes larger than the source stream; trailing padding
-shrinks from ten bytes to four. The packaged image also passes an independent
-LZMA SDK 9.20 streaming decoder with input chunks of 1, 13, 64 and 4,096 bytes.
+Kernel addresses equal expanded file offsets plus `0x40d000`. The image
+builder allows changes only in these regions and the inner hash. It regenerates
+outer lengths/hashes and padding. Bootloader, NV, initialization-copy offsets,
+version and total expanded size remain unchanged.
 
-Application and flashboot verification both select between SHA-256 comparison
-and RSA/ECC verification using eFuse configuration. The source packages contain
-plain SHA-256 hashes. Recalculating these hashes applies to the hash-only path;
-it does not satisfy RSA/ECC verification. The live eFuse byte has not been read.
-The patch changes neither eFuse nor the bootloader.
+The encoder is LZMA SDK 19.00: `lc=2, lp=2, pb=2, dict=65536`, 128 fast bytes,
+normal algorithm, BT4, known-size 13-byte header without an end marker. The
+builder first reproduces the source stream exactly and uses an independent SDK
+9.20 decoder with 1/13/64/4096-byte chunks. Hash-only wrappers are regenerated;
+this does not satisfy an RSA/ECC-enforced verification configuration. No eFuse
+or bootloader changes are made.
 
 ## Tooling
 
-The offline parts of this work are included:
+No vendor firmware image, account data, keys, device captures or prebuilt ARM
+executables are distributed. Obtain the matching source OTA from your own
+camera package.
 
-- [`tools/hi3861_ota.py`](../tools/hi3861_ota.py) validates an OTA, extracts
-  the expanded kernel, and rebuilds the two-byte patch. It accepts only the
-  source hash above. The builder compiles the pinned public-domain LZMA SDK
-  sources in [`tools/hi3861_lzma/`](../tools/hi3861_lzma/), requires the
-  encoder to reproduce the OEM stream byte-for-byte, and checks the result
-  with the independent SDK 9.20 decoder. It needs a C compiler and performs no
-  device I/O.
-- [`tools/hi3861_defense.py`](../tools/hi3861_defense.py) decodes and executes
-  the defense routine's actual instructions to reproduce the counter
-  scenarios above. It accepts the OTA or an unpacked `kernel.bin` and requires
-  `capstone` (`pip install capstone`). Add `--listing` to show the decoded
-  defense routine and the receiver gate around `0x420dc4`.
+### Build the OTA offline
 
-Extract the MCU OTA from the camera package first, then inspect or rebuild it:
+Python 3.10+ and a C compiler are required. From the repository root:
 
 ```sh
 python tools/dav.py unpack firmware.dav unpacked/
 python tools/dav.py unpack-app unpacked/app.img app-root/
 python tools/hi3861_ota.py info app-root/Hi3861L_ezviz_sdk_ota.bin
-python tools/hi3861_ota.py unpack app-root/Hi3861L_ezviz_sdk_ota.bin \
-  --out hi3861-unpacked
 python tools/hi3861_ota.py patch app-root/Hi3861L_ezviz_sdk_ota.bin \
   --out hi3861-patch
-python tools/hi3861_defense.py hi3861-patch/Hi3861L_CP4_lan_patch_ota.bin
 ```
 
-The file is `/dav/Hi3861L_ezviz_sdk_ota.bin` on the camera; in the extracted
-`app-root/` it is at the top level.
+The output is `hi3861-patch/Hi3861L_CP4_independent_wake_ota.bin`, its expanded
+`kernel.bin` and a manifest. The builder refuses a different source or result,
+checks the allowed differences, hashes and decompression round trip, and makes
+no network connection.
 
-`patch` writes `Hi3861L_CP4_lan_patch_ota.bin`, its `kernel.bin`, and a
-`manifest.json` with the hashes, LZMA checks and independent decoder results.
-The output is the image summarized above; the tool refuses a different source
-or a different result. It does not install anything. The installation path below is separate,
-uses the OEM updater, and has no validated recovery.
+[`tools/hi3861_wake/`](../tools/hi3861_wake/) contains the C/assembly source,
+linker bounds and the exact compiled code/hook plan used by the builder.
+To independently rebuild the instruction sections using Zig 0.17 and pyelftools:
 
-## Installation path
+```sh
+python -m pip install pyelftools
+python tools/hi3861_wake/build_code.py --zig /path/to/zig
+```
 
-Replacing the bundled OTA in app0 is insufficient for this same-version image:
-`ezapp` skips installation when its cached MCU version matches the file version.
-The version fields at file offsets `+0x18` and `+0x1a` also select the update:
+This checks exact equality with the packaged instruction sections; it does not
+install firmware. The pinned compiled sections let ordinary OTA builds use a C
+compiler without requiring a RISC-V compiler.
 
-| Version comparison | Action |
-| --- | --- |
-| Same major and minor | Skip update |
-| Same major, different minor | Update application kernel |
-| Different major | Update flashboot |
+### Prepare and install
 
-Keep version 2.139 for this patch and explicitly invoke the kernel updater.
-Changing the major version can select a bootloader update.
+The source-only Go launcher uses key-only root SSH on TCP 2222 and the exact
+app0 `ezapp`/`liblpwwifi.so` identities checked in its source. Go is required to
+cross-build the ARM helper. Keep continuous external power and a working SD
+card. Do not run diagnostics or another hold manager during preparation/update.
 
-The installation used `ezapp:0x2fd9c(path, 10)` on a fresh pthread inside the
-running `ezapp`, through its existing HCC connection. The image was opened
-read-only and pinned through `/proc/HELPER_PID/fd/N`. Short setup and cleanup
-calls borrowed the idle main thread with register and temporary-stack restoration.
-Starting another library instance that competes for the HCC/netlink owner is
-not an established installation route.
+```sh
+sh tools/hi3861_flash/build.sh
+python tools/hi3861_flash/prepare.py --host CAMERA_IP \
+  --image hi3861-patch/Hi3861L_CP4_independent_wake_ota.bin
+```
 
-The OEM wrapper handles transfer retries, verification, a ten-second delay and
-host reboot. Keep continuous external power during an update. If networking
-drops, inspect the update log and boot state before issuing another update;
-connection loss alone does not indicate success.
+Preparation sends one OEM wake, stages and verifies the helper/candidate under
+`/mnt/mmc01/hi3861-wake/`, uses a bounded preparation hold, and runs non-flashing
+file/mapping, pthread, version and pinned-file-opening probes. It saves a local
+deployment manifest and probe log. Use `--protocol cp4` if the camera already
+has the replacement receiver, or `--no-wake` after a physical/cloud wake.
+`--identity PATH` selects an SSH key. There is no cloud login in this launcher.
 
-Software restoration requires the MCU to boot far enough to service HCC. No
-UART/JTAG recovery procedure is available for this setup, so an unbootable MCU
-may be unrecoverable. Reinstalling app0 does not by itself restore the MCU.
+Local readiness verification makes no connection or updater call:
 
-## Test results
+```sh
+python tools/hi3861_flash/flash.py --host CAMERA_IP \
+  --image hi3861-patch/Hi3861L_CP4_independent_wake_ota.bin
+```
 
-Installation on 23 October 2026 was followed by a fresh Linux boot with working
-Wi-Fi and SSH. Normal sleep and single-packet LAN wake also worked.
+The following explicitly invokes the MCU updater:
 
-An initial test sent 110 matching datagrams at 0.1-second intervals, followed
-by a successful LAN wake. The sleep flag was not monitored throughout that
-sequence; the hold helper was subsequently corrected to maintain the flag.
+```sh
+python tools/hi3861_flash/flash.py --host CAMERA_IP \
+  --image hi3861-patch/Hi3861L_CP4_independent_wake_ota.bin --execute
+```
 
-A follow-up test sent **200 matching wake packets at 50 ms intervals** while
-an indefinite hold was active. The sleep flag was verified as disabled before
-the burst. SSH remained available afterward, with Linux uptime advancing from
-19.59 to 36.68 seconds. Subsequent sleep followed by LAN wake also worked.
-These results support the patch working in practice beyond the original
-99-packet allowance.
+Apply the same `--protocol`/`--no-wake` selection as preparation. Ensure the
+probe has finished and released its lock before execution. The launcher repeats
+checks and calls `ezapp:0x2fd9c(pinned_fd_path,10)` on a fresh pthread inside the
+existing HCC owner. It pins the open image inode through `/proc/HELPER_PID/fd/N`.
+The OEM wrapper owns transfer retries, verification, delay and host reboot.
+No external competing HCC library instance is started.
 
-Individual MCU packet receipt and counter increments were not measured, and
-the follow-up was not WAN-isolated.
+The driver records intent before sending one launch request and never retries
+an ambiguous launch. Exit 3 after launch means boot success is still unverified.
+The durable SD `flash-TIMESTAMP.log`, console log and persistent `launcher.lock`
+preserve the operation state. Do not remove the lock or flash again to verify
+success. A dropped connection or version 2.139 alone is not success evidence.
+Check a fresh functional boot, diagnostics and controlled sleep/wake instead.
 
-The final updater return and MCU binary readback were not captured. Long-term
-sleep/wake reliability, AP reassociation, cold startup and power-loss recovery
-remain untested.
+Normal startup skips a same-version MCU file, so replacing the bundled file in
+app0 alone does not install this OTA. Keep version 2.139: changing the major
+version can select flashboot rather than the kernel. Software rollback requires
+working MCU HCC; unbootable-MCU recovery via UART/JTAG is not established.
 
-## Related
+### Diagnostics
 
-- [Wake and sleep](WAKE.md) — packet format, sender commands and troubleshooting.
-- [Platform guide](PLATFORM.md) — Wi-Fi MCU and host architecture.
-- [Firmware](FIRMWARE.md) — camera packages and app0 installation.
+The MCU provides an 80-byte, version-1 snapshot through HCC command `0x12`.
+It reports generation, online/socket/filter readiness, receive/invalid/suppressed
+and assertion counters, socket/filter errors, timestamps and retry state.
+It does not drain packets or change receiver configuration.
+
+The Linux library drops command-0x12 replies by default. The reader temporarily
+patches its mapped reply dispatcher, requires supported version/reason queries
+to pass first, requests one snapshot, checks supported queries afterward, then
+restores and reads back both original instructions. Disk and MCU flash remain
+unchanged. An in-flight timed-out worker retains scratch/patch state rather
+than invalidating active code; Linux reboot clears the temporary patch.
+
+```sh
+sh tools/hi3861_diag/build.sh
+python tools/hi3861_diag/read_status.py --host CAMERA_IP --label receiver
+```
+
+The reader sends one new-protocol wake and uses/releases a bounded hold. Use
+`--no-wake` on an already awake camera. Baseline failure skips the patch/query;
+wrong magic/version or failed calls are errors. `--check-only --no-wake` checks
+files and addresses without HCC calls or Linux text changes. Do not run during
+an update. Logs and snapshots remain local/private and are git-ignored.
+
+## Validation and limits
+
+The exact image has been installed and returned with working Wi-Fi/SSH.
+Diagnostic snapshots and supported HCC queries passed before/after the query,
+with Linux patch restoration verified. One controlled wake after waiting beyond
+the nominal boost window restored SSH in approximately 5.6 seconds with fresh
+Linux uptime. This is not a latency comparison or proof of long-term reliability.
+
+Compiled-code QEMU checks covered packet matching, cooldown/wrap, reconnect and
+socket/filter retries, prewake call order/duration, task-creation failure
+fallback, snapshot bridge and a modeled stack guard. Actual proprietary ROM
+stack depth, expiry/power behavior, reassociation, long idle and MCU cold-start
+behavior remain unmeasured. The status snapshot does not expose the prewake
+handle/deadline or electrical GPIO state. No installed-image readback or final
+updater return was obtained.
+
+See [Wake and sleep](WAKE.md), [Platform](PLATFORM.md) and [Firmware](FIRMWARE.md).

@@ -14,11 +14,11 @@ The image is a HiSilicon update container:
     0x3c0  LZMA-alone stream, then zero padding to a 16-byte boundary
 
 The expanded section is another instance of the same wrapper, holding the
-Hi3861L kernel. The documented LAN-wake patch changes two instruction bytes
-at expanded file offset 0x13dc4 (runtime address 0x420dc4).
+Hi3861L kernel. The patch replaces the UDP receiver and installs bounded
+startup, sleep-filter and diagnostic hooks for CP4 version 2.139.
 
 `patch` is deliberately pinned to the CP4 MCU application version 2.139
-(source SHA-256 e01c4867...). It builds the same two-byte image described in
+(source SHA-256 e01c4867...). It builds the same receiver image described in
 docs/HI3861-LAN-PATCH.md, reproduces the OEM compressed stream byte-for-byte
 as a control, and verifies the result independently with the SDK 9.20 decoder.
 It writes an offline image only; it never contacts a camera or invokes an
@@ -70,13 +70,9 @@ SOURCE_SHA256 = "e01c4867892f611326c4935abdcfb1d9a6c19629f2953b0cd441fb36578596c
 SOURCE_EXPANDED_SHA256 = "ca5e1a57ff4b4f056f1a279fc0e902605126fd9651444ea9f84096d74bf6d788"
 EXPECTED_VERSION = (2, 139)
 
-PATCH_RUNTIME_ADDRESS = 0x420DC4
-PATCH_FILE_OFFSET = 0x13DC4
-PATCH_ORIGINAL = bytes.fromhex("09e5")       # c.bnez a0, +10
-PATCH_REPLACEMENT = bytes.fromhex("29a0")    # c.j    +10
-PATCH_TARGET = 0x420DCE
-PATCHED_OTA_SHA256 = "5eb5d27c9ac86fc0d9b7a6dc627a5ec1b910e1ccd65290dd7e8e5d0f29f9e734"
-PATCHED_EXPANDED_SHA256 = "1ae9f741ce873e2b4aa3f67d73e917b1ca2fa3ff57fb891a308ae80ccc68defb"
+PATCH_PLAN = HERE / "hi3861_wake" / "patch.json"
+PATCHED_OTA_SHA256 = "951c3e569cd794821637263e805105c65b2e576cdd006f9028c4e3aea49679fb"
+PATCHED_EXPANDED_SHA256 = "8d97d46ac40ed36fbf2dbfce593ab12998664a4e80e4756cb6fae960d764accd"
 
 LZMA_LC, LZMA_LP, LZMA_PB = 2, 2, 2
 LZMA_DICT_SIZE = 65536
@@ -246,14 +242,6 @@ def _parse_image(data: bytes) -> tuple[dict, bytes]:
             f"({declared_size})")
     validate_wrapper(expanded)
 
-    patch_bytes = expanded[PATCH_FILE_OFFSET:PATCH_FILE_OFFSET + 2]
-    if patch_bytes == PATCH_ORIGINAL:
-        patch_state = "original"
-    elif patch_bytes == PATCH_REPLACEMENT:
-        patch_state = "patched"
-    else:
-        patch_state = "unexpected"
-
     expanded_digest = sha256(expanded)
     if expanded_digest == SOURCE_EXPANDED_SHA256:
         known = "source-2.139"
@@ -281,13 +269,7 @@ def _parse_image(data: bytes) -> tuple[dict, bytes]:
             "sha256": expanded_digest,
             "known_image": known,
         },
-        "patch": {
-            "runtime_address": f"0x{PATCH_RUNTIME_ADDRESS:x}",
-            "file_offset": f"0x{PATCH_FILE_OFFSET:x}",
-            "target": f"0x{PATCH_TARGET:x}",
-            "bytes": patch_bytes.hex(),
-            "state": patch_state,
-        },
+        "patch": {"protocol": "cp4", "state": "installed-design" if known == "patched-2.139" else "source" if known else "unknown"},
         "wrapper": {
             "common_header_sha256_ok": True,
             "section_sha256_ok": True,
@@ -335,8 +317,7 @@ def print_info(ota: Ota) -> None:
     print(f"expanded    {expanded['size']} bytes, sha256 {expanded['sha256']}"
           + (f" ({expanded['known_image']})" if expanded["known_image"] else ""))
     print("wrapper     common=OK section=OK")
-    print(f"patch       {patch['state']} ({patch['bytes']}) at "
-          f"{patch['file_offset']} / {patch['runtime_address']}")
+    print(f"patch       {patch['state']} (independent UDP 50162 + OEM prewake)")
 
 
 def _write_unpacked(ota: Ota, out: Path) -> dict:
@@ -381,31 +362,31 @@ def _check_source(ota: Ota) -> None:
         raise Hi3861Error(
             f"MCU version {version[0]}.{version[1]} is not {EXPECTED_VERSION[0]}."
             f"{EXPECTED_VERSION[1]}")
-    if ota.expanded[PATCH_FILE_OFFSET:PATCH_FILE_OFFSET + 2] != PATCH_ORIGINAL:
-        raise Hi3861Error(
-            f"expected {PATCH_ORIGINAL.hex()} at expanded offset "
-            f"0x{PATCH_FILE_OFFSET:x}, found "
-            f"{ota.expanded[PATCH_FILE_OFFSET:PATCH_FILE_OFFSET + 2].hex()}")
 
 
 def _apply_patch(expanded: bytes) -> bytes:
+    plan = json.loads(PATCH_PLAN.read_text())
     patched = bytearray(expanded)
-    if patched[PATCH_FILE_OFFSET:PATCH_FILE_OFFSET + 2] != PATCH_ORIGINAL:
-        raise Hi3861Error("source instruction is not the expected c.bnez")
-    patched[PATCH_FILE_OFFSET:PATCH_FILE_OFFSET + 2] = PATCH_REPLACEMENT
+    allowed = set(range(SECTION_SIGNATURE, SECTION_SIGNATURE + SHA256_LEN))
+    for region in plan["regions"]:
+        offset = region["offset"]
+        data = bytes.fromhex(region["bytes"])
+        if len(data) != region["capacity"]:
+            raise Hi3861Error("invalid receiver region length")
+        patched[offset:offset + len(data)] = data
+        allowed.update(range(offset, offset + len(data)))
+    for hook in plan["hooks"]:
+        offset = int(hook["at"], 16) - 0x40d000
+        before, after = bytes.fromhex(hook["before"]), bytes.fromhex(hook["after"])
+        if patched[offset:offset+len(before)] != before or len(before) != len(after):
+            raise Hi3861Error("hook instruction precondition failed")
+        patched[offset:offset+len(after)] = after
+        allowed.update(range(offset, offset+len(after)))
     rehash_wrapper(patched)
-
-    changes = [
-        index for index, (old, new) in enumerate(zip(expanded, patched))
-        if old != new
-    ]
-    allowed = set(range(PATCH_FILE_OFFSET, PATCH_FILE_OFFSET + 2))
-    allowed.update(range(SECTION_SIGNATURE, SECTION_SIGNATURE + SHA256_LEN))
-    unexpected = [index for index in changes if index not in allowed]
-    if unexpected:
-        raise Hi3861Error(
-            "internal error: patch changed unexpected offsets "
-            + ", ".join(f"0x{index:x}" for index in unexpected[:8]))
+    if len(patched) != len(expanded) or any(i not in allowed for i,(a,b) in enumerate(zip(expanded,patched)) if a != b):
+        raise Hi3861Error("unexpected expanded-image difference")
+    if sha256(patched) != PATCHED_EXPANDED_SHA256:
+        raise Hi3861Error("receiver code does not match pinned expanded image")
     return bytes(patched)
 
 
@@ -517,7 +498,7 @@ def cmd_patch(args: argparse.Namespace) -> int:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    ota_path = out / "Hi3861L_CP4_lan_patch_ota.bin"
+    ota_path = out / "Hi3861L_CP4_independent_wake_ota.bin"
     kernel_path = out / "kernel.bin"
     manifest_path = out / "manifest.json"
 
@@ -550,11 +531,8 @@ def cmd_patch(args: argparse.Namespace) -> int:
         print("independent SDK 9.20 decoding: OK", file=sys.stderr)
 
         outer = _assemble(source.raw, patched_stream)
-        if len(outer) != len(source.raw):
-            raise Hi3861Error(
-                "the rebuilt OTA changed size; the OEM padding is insufficient")
-        if outer[:SECTION_HEADER] != source.raw[:SECTION_HEADER]:
-            raise Hi3861Error("the common wrapper changed unexpectedly")
+        if len(outer) != 552608:
+            raise Hi3861Error("unexpected receiver OTA size")
         if sha256(outer) != PATCHED_OTA_SHA256:
             raise Hi3861Error(
                 "the rebuilt OTA does not match the documented patched hash\n"
@@ -568,7 +546,7 @@ def cmd_patch(args: argparse.Namespace) -> int:
         rebuilt = Ota.parse(outer, str(ota_path))
         if rebuilt.expanded != patched_kernel:
             raise Hi3861Error("rebuild/decompress round trip differs")
-        if rebuilt.info["lzma"]["trailing_padding"] != 4:
+        if rebuilt.info["lzma"]["trailing_padding"] != 12:
             raise Hi3861Error("unexpected payload padding after the patched stream")
 
         # A one-byte change to the compressed payload must be rejected by the
@@ -606,19 +584,10 @@ def cmd_patch(args: argparse.Namespace) -> int:
                 f"{source.info['common']['version_major']}."
                 f"{source.info['common']['version_minor']}"),
         },
-        "patch": {
-            "runtime_address": f"0x{PATCH_RUNTIME_ADDRESS:x}",
-            "expanded_file_offset": f"0x{PATCH_FILE_OFFSET:x}",
-            "original_bytes": PATCH_ORIGINAL.hex(),
-            "replacement_bytes": PATCH_REPLACEMENT.hex(),
-            "original_instruction": "c.bnez a0, +10",
-            "replacement_instruction": "c.j +10",
-            "target": f"0x{PATCH_TARGET:x}",
-            "effect": (
-                "Keep the defense call and its counters/logging; ignore its "
-                "rejection at this UDP receiver call site only."),
-            "changed_offsets": [f"0x{index:x}" for index in changes],
-        },
+        "patch": {"protocol": "cp4", "udp_port": 50162,
+                  "payload": "43503457414b45015003bd2f", "prewake_seconds": 20,
+                  "plan": json.loads(PATCH_PLAN.read_text()),
+                  "changed_offsets": [f"0x{i:x}" for i in changes]},
         "result": {
             "file": str(ota_path),
             "size": len(outer),
@@ -648,7 +617,7 @@ def cmd_patch(args: argparse.Namespace) -> int:
             "inner and outer SHA-256",
             "OEM compressed stream reproduced byte-for-byte",
             "LZMA header preserved",
-            "unchanged OTA size and common wrapper",
+            "pinned OTA size and regenerated wrapper lengths/hashes",
             "rebuild/decompress round trip",
             "corrupted payload rejected",
             "independent SDK 9.20 decoding at 1/13/64/4096-byte input chunks",
@@ -681,7 +650,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_unpack)
 
     p = sub.add_parser(
-        "patch", help="build the documented two-byte LAN-wake patch image")
+        "patch", help="build the independent UDP receiver with OEM prewake")
     p.add_argument("image", help="the exact CP4 2.139 Hi3861L OTA")
     p.add_argument("--out", required=True, help="output directory")
     p.set_defaults(func=cmd_patch)

@@ -36,3 +36,17 @@ id_rsa*
 .DS_Store
 .idea/
 .vscode/
+
+# Locally built ARM tooling and generated firmware/output (private).
+tools/hi3861_flash/cp4-hi3861-flash
+tools/hi3861_flash/deployment.json
+tools/hi3861_flash/live-probe.txt
+tools/hi3861_flash/flash-request-*.json
+tools/hi3861_diag/cp4-independent-status
+tools/hi3861_diag/readback-*/
+hi3861-patch/
+*.rv32.o
+*.elf
+
+# Standalone video server build output
+tools/video_server/cp4-video-arm
