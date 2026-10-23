@@ -158,8 +158,9 @@ can be disrupted. Read [Protocol](docs/PROTOCOL.md) before using
   app images.
 - `tcpdump`/`editcap` only for capturing a bootstrap exchange.
 
-The container, capture, and probe tools use only the Python standard library
-plus `cryptography`.
+The container, capture, and probe tools use only the Python standard library.
+`get_firmware.py` and the cloud path of `wake.py` use `pyezvizapi`, which
+depends on `cryptography`.
 
 ### Wake the camera
 

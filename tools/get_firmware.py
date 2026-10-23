@@ -17,7 +17,7 @@ need the camera's cloud connection.
 The device identity (32 bytes, usually 32 printable base64 characters) is sent
 in the clear during the device's own bootstrap exchange. Extract it from a
 capture with device_id.py, or let this tool register a new identity with
---register (which is more disruptive; see --help).
+--register (which is more disruptive; see docs/FIRMWARE.md).
 
 Examples:
     # First run: use a captured identity and save session keys for reuse.
@@ -591,7 +591,7 @@ def main() -> int:
     parser.add_argument("--advertise-version",
                         help="use exactly this version in every query")
     parser.add_argument("--fallback-version", default="V0.0.0 build 000000",
-                        help="older version tried when no package is returned")
+                        help="older version tried after the current version")
     parser.add_argument("--firmware-id", default=None,
                         help="FirmwareIdentificationCode; default tries '' then '0'")
     parser.add_argument("--listen", type=float, default=20.0,
