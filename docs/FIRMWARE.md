@@ -176,8 +176,9 @@ version, with `FirmwareIdentificationCode` empty and `0`.
 
 If you do not have the device identity, `--register` asks the cloud to
 allocate a new one through the device-creation flow. This is more disruptive:
-it can invalidate or rotate the physical device's credentials. The recommended
-path is a one-time capture plus `--state`.
+it can invalidate or rotate the physical device's credentials. This code path
+was implemented from the protocol but was **not** exercised on the tested
+device; the recommended path is a one-time capture plus `--state`.
 
 ## Rebuilding an app image
 

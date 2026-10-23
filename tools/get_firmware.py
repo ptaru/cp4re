@@ -625,7 +625,10 @@ def main() -> int:
             )
 
     serial = args.serial.strip()
-    serial_bytes = serial.encode("ascii")
+    try:
+        serial_bytes = serial.encode("ascii")
+    except UnicodeEncodeError:
+        parser.error("serial must be ASCII")
     if not 0 < len(serial_bytes) <= 127:
         parser.error("serial must be 1..127 ASCII bytes")
 

@@ -380,7 +380,11 @@ def cmd_diff(args: argparse.Namespace) -> int:
             problems += 1
             continue
         a, b = left.component(name), right.component(name)
-        changed = a.checksum != b.checksum or a.size != b.size
+        changed = (
+            a.checksum != b.checksum
+            or a.size != b.size
+            or hashlib.sha256(a.data).digest() != hashlib.sha256(b.data).digest()
+        )
         print(f"{name:16s} {'CHANGED' if changed else 'same':7s} "
               f"{a.size} -> {b.size}")
         problems += 1 if changed else 0

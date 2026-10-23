@@ -140,7 +140,8 @@ allocate one:
 The command 6 response carries the encrypted device identity, the master key,
 and the session key. `get_firmware.py --register` uses this path. It is more
 disruptive than reusing an existing identity because it asks the cloud to
-allocate or rotate device credentials.
+allocate or rotate device credentials. The create path was implemented from
+the protocol but was not exercised on the tested device.
 
 ## Cached-session refresh (commands 7/8/9)
 
