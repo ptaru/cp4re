@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 import socket
-import sys
 
 DEFAULT_PORTS = [2222, 2323, 8000, 554]
 
