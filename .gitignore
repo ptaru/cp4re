@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Firmware and captures are large and may be private
+*.dav
+*.img
+*.squashfs
+*.bin
+*.pcap
+*.pcapng
+*.log
+
+# Local build/unpack output
+unpacked/
+app-root/
+firmware-*/
+custom.dav
+recovery.dav
+
+# Local credentials/state
+device-id*.json
+session*.json
+*-private.json
+
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
