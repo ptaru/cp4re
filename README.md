@@ -303,8 +303,9 @@ Demonstrated on the tested unit:
   patch, app0 layout, and init script are documented in
   [app0 SSH](docs/APP0-SSH.md).
 - A two-byte Hi3861L patch removes the receiver's counter-based wake refusal.
-  Boot, Wi-Fi, sleep and LAN wake worked after installation, including a wake
-  after 110 paced matching datagrams. See the
+  Boot, Wi-Fi, sleep and LAN wake worked after installation. A 200-packet test
+  followed by successful sleep and LAN wake supports the patch working in
+  practice. See the
   [patch reference](docs/HI3861-LAN-PATCH.md) for code, packaging and test limits.
 
 Not established:

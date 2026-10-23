@@ -189,8 +189,9 @@ Association loss, failed pattern arming and listener/buffer failures are other
 possible causes of lost wake.
 
 The [Hi3861L LAN-wake patch](HI3861-LAN-PATCH.md) removes this counter-based
-refusal. Boot, sleep and LAN wake worked after installation, including a wake
-after 110 paced matching datagrams. MCU code/counters were not read back and
+refusal. After 200 matching packets sent at 50 ms intervals during an indefinite
+hold, SSH remained available; subsequent sleep and LAN wake also worked. This
+supports the patch working in practice. MCU code/counters were not read back and
 long-term reliability remains untested. The patch requires a separate MCU
 update; its binary and launcher are not included here.
 
