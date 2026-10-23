@@ -33,6 +33,9 @@ firmware images. The tools take those values from you at run time.
 | [`tools/make_firmware.py`](tools/make_firmware.py) | Build a modified `.dav`: SquashFS an app filesystem, refresh the app trailer, replace `app.img`, and verify. |
 | [`tools/probe.py`](tools/probe.py) | Read-only TCP probe for the documented service states. |
 
+The network tools print progress to stderr and a JSON summary to stdout, so
+`python tools/wake.py ... | jq .` works. Use `--json-out` to save a report.
+
 Deeper notes:
 
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.

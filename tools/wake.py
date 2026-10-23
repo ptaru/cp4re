@@ -228,14 +228,14 @@ def main() -> int:
 
     if args.host and args.method in ("auto", "lan"):
         report["lan"] = lan_wake(args.host, args.lan_port, payload, args.source_port)
-        print(f"sent LAN wake to {args.host}:{args.lan_port}", flush=True)
+        print(f"sent LAN wake to {args.host}:{args.lan_port}", file=sys.stderr, flush=True)
         if args.wait > 0:
             woke, state, elapsed = wait_for_ports(args.host, check_ports_list, args.wait)
             report["lan"]["ports"] = state
             report["lan"]["seconds"] = elapsed
             if woke:
                 via = "lan"
-                print(f"camera reachable after {elapsed}s", flush=True)
+                print(f"camera reachable after {elapsed}s", file=sys.stderr, flush=True)
         elif args.method == "lan" or (args.method == "auto" and args.wait <= 0):
             # No verification requested; sending the datagram is the operation.
             via = "lan"
@@ -272,7 +272,7 @@ def main() -> int:
             report["cloud"] = {"login": False, "error": str(error)}
             print(json.dumps(report, indent=2))
             return 1
-        print("cloud login OK", flush=True)
+        print("cloud login OK", file=sys.stderr, flush=True)
         report["cloud"] = {"login": True}
         report["cloud"].update(
             cloud_wake(client, args.serial, args.cloud_mode, args.preview_timeout)
@@ -288,7 +288,7 @@ def main() -> int:
             report["cloud"]["seconds"] = elapsed
             if woke:
                 via = "cloud"
-                print(f"camera reachable after {elapsed}s", flush=True)
+                print(f"camera reachable after {elapsed}s", file=sys.stderr, flush=True)
         elif triggered:
             # No LAN address to verify against, but the cloud accepted a trigger.
             via = "cloud"

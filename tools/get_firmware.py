@@ -724,7 +724,7 @@ def main() -> int:
                     )
                 master_key = bytes.fromhex(state["master_hex"])
                 auth_kind = "refresh"
-                print("session refreshed from saved state", flush=True)
+                print("session refreshed from saved state", file=sys.stderr, flush=True)
             except Exception as error:
                 print(f"refresh failed ({error}); falling back to full auth",
                       file=sys.stderr)
@@ -746,7 +746,8 @@ def main() -> int:
                 )
             del code
             auth_kind = "register" if args.register else "existing"
-            print(f"authenticated ({auth_kind}); device identity loaded", flush=True)
+            print(f"authenticated ({auth_kind}); device identity loaded",
+                  file=sys.stderr, flush=True)
     except wire.AuthenticationRejected as error:
         print(
             f"error: authentication rejected with status {error.status}. "
@@ -791,7 +792,8 @@ def main() -> int:
             will=will,
         )
         mqtt.subscribe("/" + serial + "/#", qos=1)
-        print(f"connected to {broker[0]}:{broker[1]} as the device", flush=True)
+        print(f"connected to {broker[0]}:{broker[1]} as the device",
+              file=sys.stderr, flush=True)
         sequence = 32001
         package = None
         for index, variant in enumerate(variants):
@@ -808,6 +810,7 @@ def main() -> int:
                 f"query {index + 1}/{len(variants)}: advertised "
                 f"{variant['current_version']!r}, firmware id "
                 f"{variant['firmware_id']!r}",
+                file=sys.stderr,
                 flush=True,
             )
             deadline = time.monotonic() + args.listen
@@ -835,10 +838,11 @@ def main() -> int:
                             f"  package {parsed['file']['version']} "
                             f"({parsed['file']['size']} bytes, "
                             f"MD5 {parsed['file']['checksum']})",
+                            file=sys.stderr,
                             flush=True,
                         )
                         break
-                    print(f"  result {parsed['result']} (no package)", flush=True)
+                    print(f"  result {parsed['result']} (no package)", file=sys.stderr, flush=True)
                 if package:
                     break
                 # Re-enter the wait loop if there are messages but no package.
@@ -898,7 +902,7 @@ def main() -> int:
     if not result["verified"]:
         print("DOWNLOAD VERIFICATION FAILED", file=sys.stderr)
         return 1
-    print(f"saved {output} ({result['size']} bytes, MD5 verified)")
+    print(f"saved {output} ({result['size']} bytes, MD5 verified)", file=sys.stderr)
     return 0
 
 
