@@ -125,6 +125,7 @@ useful context:
 | --- | --- |
 | LAN wake | Proven in three WAN-isolated tests; no cloud or account needed at wake time. |
 | Cloud wake | Proven through the live-view preview handshake; the IoT SpeedUp action alone was not reliable. |
+| Wi-Fi MCU LAN-gate patch | Removes counter-based wake refusal. Boot and sleep/LAN wake worked after installation, including after 110 paced matching datagrams. MCU readback, long-term behavior and recovery remain unverified. See [Hi3861L LAN-wake patch](HI3861-LAN-PATCH.md). |
 | Root shell | Key-only SSH on 2222 after installing a modified app0 image; SD hook as a fallback. The build recipe is in [app0 SSH](APP0-SSH.md). |
 | Local upgrade | App-only modified images install and boot; no trailer-version gate was observed. |
 | Firmware acquisition | Device-authenticated MQTT query returned the installed package and an HTTPS URL with MD5/size. |

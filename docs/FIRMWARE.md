@@ -283,6 +283,16 @@ version gate. Only `app.img` was replaced; kernel, bootloader, OTP/`enc`, and
 - Assume another CP4 revision or firmware has the same secure-boot state or
   update policy.
 
+## Wi-Fi MCU firmware is separate
+
+`Hi3861L_ezviz_sdk_ota.bin` and `Hi3861L_ezviz_sdk_flash_boot_ota.bin` live
+inside `app.img` under `/dav`, but they are not `.dav` components and Local
+Upgrade does not install them. The MCU update path uses the host HCC/`ezapp`
+updater and is a different risk class from replacing `app.img`: there is no
+validated recovery on the tested unit. See the
+[Hi3861L LAN-wake patch](HI3861-LAN-PATCH.md) note before touching MCU
+firmware.
+
 ## Secure boot and signing observations
 
 - The official CP4 package has `secure_flag=0xff`, not the security-firmware

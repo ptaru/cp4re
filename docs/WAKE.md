@@ -119,11 +119,32 @@ which candidate ports are open.
 - A sleeping camera may still have an active Wi-Fi MCU connection to the
   cloud. “No TCP services” is not proof that the device is powered off.
 
+## Repeated-wake limit
+
+Unmodified Hi3861L firmware counts packets matching the LAN wake pattern,
+including packets received while Linux is awake. The decoded routine refuses
+packet 100 onward in a fresh run-time bucket; a previous-bucket count of 200
+or more can also block acceptance. Buckets use MCU run time in 86,400-second
+intervals. Time advancement during deep sleep has not been measured.
+
+Send one packet per wake attempt, then poll the readiness port without sending
+more packets. Draining buffered packets, rearming the pattern and rebooting
+Linux do not clear these counters. A true MCU reset can clear the state.
+Association loss, failed pattern arming and listener/buffer failures are other
+possible causes of lost wake.
+
+The [Hi3861L LAN-wake patch](HI3861-LAN-PATCH.md) removes this counter-based
+refusal. Boot, sleep and LAN wake worked after installation, including a wake
+after 110 paced matching datagrams. MCU code/counters were not read back and
+long-term reliability remains untested. The patch requires a separate MCU
+update; its binary and launcher are not included here.
+
 ## Troubleshooting
 
 | Symptom | Things to check |
 | --- | --- |
 | LAN wake sends but nothing opens | Wrong camera IP or VLAN, client isolation, a firewall dropping UDP 50161, or a different model/firmware whose wake pattern differs. Try `--payload` from a capture. |
+| Wake worked earlier, then stopped | The Hi3861L repeated-wake defense may have tripped. Pace attempts and try a true power cycle. See “Repeated-wake limit” above. |
 | The camera was awake but no check port opened | Stock firmware has no 2222/2323. Use `tools/probe.py` and a port that exists. |
 | Cloud login fails | Wrong region (`--api-url`), MFA/SMS requirement, or account password. The client automatically retries a region redirect once. |
 | Cloud trigger succeeds but no wake | Confirm the serial belongs to the account. Try `--cloud-mode both`; the close-early preview handshake is the proven path. |

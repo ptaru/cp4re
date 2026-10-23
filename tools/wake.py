@@ -4,7 +4,9 @@
 LAN path (proven on CP4):
     One ordinary UDP datagram to port 50161 carrying the seven-byte EZLink
     wake header. No account, cloud connection, replacement bootstrap server,
-    or raw socket is used.
+    or raw socket is used. The Hi3861L has a stateful repeated-wake defense, so
+    avoid tight retry loops; one packet per invocation is intended. See
+    docs/WAKE.md.
 
 Cloud path (proven fallback):
     Account login, then the cloud live-view (VTM) handshake. The handshake

@@ -43,8 +43,9 @@ the key-only SSH setup. See [app0 SSH](docs/APP0-SSH.md).
 Deeper notes:
 
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.
-- [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, evidence, and limits.
+- [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, repeated-wake limits, and troubleshooting.
 - [Firmware](docs/FIRMWARE.md) — the `.dav` container, acquisition protocol, app image format, build and installation procedure, and recovery.
+- [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the wake counter behavior, two-byte code change, OTA packaging, and MCU update path.
 - [app0 SSH](docs/APP0-SSH.md) — patching TinySSH for the non-multiuser kernel, the app0 layout, and the initrun changes.
 - [Protocol](docs/PROTOCOL.md) — the legacy channel-99 authentication and firmware-query protocol.
 
@@ -272,6 +273,9 @@ validated.
   separate cards. Recovery through the touchscreen, automatic SD recovery,
   and bootloader slot fallback were not validated on the tested unit.
 - **Never write OTP or `cipher_otp.bin`.** OTP writes are irreversible.
+- **MCU flashing is not app0 flashing.** The Hi3861L patch has no validated
+  recovery path on the tested unit and can leave the Wi-Fi MCU unbootable.
+  Read [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) before considering it.
 - **Treat captures and identities as private.** The device identity is stable
   even though it is not a password. The verification code is a credential.
 - **The SSH image is a credential.** If you bake a host key or authorized key
@@ -298,6 +302,10 @@ Demonstrated on the tested unit:
 - A custom app image can provide key-only SSH on 2222 from `initrun.sh`. The
   patch, app0 layout, and init script are documented in
   [app0 SSH](docs/APP0-SSH.md).
+- A two-byte Hi3861L patch removes the receiver's counter-based wake refusal.
+  Boot, Wi-Fi, sleep and LAN wake worked after installation, including a wake
+  after 110 paced matching datagrams. See the
+  [patch reference](docs/HI3861-LAN-PATCH.md) for code, packaging and test limits.
 
 Not established:
 
@@ -310,6 +318,8 @@ Not established:
   shared-memory media tap are research results, not packaged tools here.
 - The exact PIR sensor wiring, the FM33 wake line, and the full inter-unit
   transport.
+- Hi3861L flash readback, live counter measurement, long-term patched behavior
+  or recovery from an unbootable Wi-Fi MCU.
 
 ---
 
@@ -337,6 +347,7 @@ public/
     ├── PLATFORM.md
     ├── WAKE.md
     ├── FIRMWARE.md
+    ├── HI3861-LAN-PATCH.md
     ├── APP0-SSH.md
     └── PROTOCOL.md
 ```
