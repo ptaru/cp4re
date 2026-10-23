@@ -43,7 +43,7 @@ the key-only SSH setup. See [app0 SSH](docs/APP0-SSH.md).
 Deeper notes:
 
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.
-- [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, repeated-wake limits, and troubleshooting.
+- [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, timed/indefinite awake holds, repeated-wake limits, and troubleshooting.
 - [Firmware](docs/FIRMWARE.md) — the `.dav` container, acquisition protocol, app image format, build and installation procedure, and recovery.
 - [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the wake counter behavior, two-byte code change, OTA packaging, and MCU update path.
 - [app0 SSH](docs/APP0-SSH.md) — patching TinySSH for the non-multiuser kernel, the app0 layout, and the initrun changes.
@@ -332,6 +332,7 @@ public/
 ├── requirements.txt
 ├── tools/
 │   ├── wake.py
+│   ├── wake_hold.py
 │   ├── get_firmware.py
 │   ├── device_id.py
 │   ├── dav.py

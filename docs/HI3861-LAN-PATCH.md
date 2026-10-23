@@ -133,8 +133,9 @@ may be unrecoverable. Reinstalling app0 does not by itself restore the MCU.
 Installation on 23 October 2026 was followed by a fresh Linux boot with working
 Wi-Fi and SSH. Normal sleep and single-packet LAN wake also worked.
 
-During a 60-second awake hold, 110 matching datagrams were sent at 0.1-second
-intervals. After the hold expired and SSH became unreachable, one LAN packet
+With a 60-second awake hold requested, 110 matching datagrams were sent at
+0.1-second intervals. The sleep flag was not monitored throughout that sequence;
+a one-time flag write can be overridden by `ezapp`. After the hold expired and SSH became unreachable, one LAN packet
 restored SSH with uptime 3.34 seconds. This supports operation beyond the
 original current-bucket allowance. Individual packet receipt and counter
 increments were not measured, and this test was not WAN-isolated.

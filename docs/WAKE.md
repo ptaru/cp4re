@@ -94,10 +94,15 @@ Useful options:
 | `--check-port PORT` | TCP port that means “awake”; repeatable. Default `2222` and `2323`. |
 | `--lan-port 50161` | Wake receiver port. |
 | `--payload HEX` | Override the seven-byte wake header. |
+| `--hold SECONDS\|forever` | Wake, then inhibit sleep over SSH. Timed range: 1–300 seconds. |
+| `--release-hold` | Release this tool's hold over SSH without waking. |
+| `--ssh-port PORT` | SSH port for hold/release (default 2222). |
+| `--identity PATH` | SSH private key for hold/release. |
 | `--dry-run` | Print the plan without sending anything. |
 
 The account password is read from `EZVIZ_PASSWORD` or a hidden prompt. The
-device serial and host have no defaults. The tool stores nothing.
+device serial and host have no defaults. Account credentials are not saved.
+`--json-out` optionally saves a report; holds use temporary camera-side state.
 
 ### What “awake” means
 
@@ -106,6 +111,56 @@ image) and TCP **2323** (historical raw shell). Stock firmware exposes neither,
 so a stock camera will look asleep even after a successful LAN wake. Choose a
 port that exists on your image with `--check-port`. `tools/probe.py` shows
 which candidate ports are open.
+
+## Keep the camera awake
+
+With the custom SSH image installed, add `--hold` to wake the camera and inhibit
+sleep. A timed hold accepts 1–300 seconds. `forever` remains active until
+explicitly released or Linux restarts:
+
+```sh
+python tools/wake.py --host 192.168.1.50 --method lan --hold 120
+python tools/wake.py --host 192.168.1.50 --method lan --hold forever
+python tools/wake.py --host 192.168.1.50 --release-hold
+```
+
+If the camera is already awake, `--hold` applies without sending another wake.
+Otherwise it follows the selected LAN/cloud wake method, waits for SSH, and
+applies the hold. The duration starts when sleep is inhibited; the command
+returns after confirmation. With `--hold`, readiness uses `--ssh-port` (default
+2222) rather than `--check-port`. A positive `--wait` and `--host` are required.
+
+`--release-hold` connects directly over SSH. It sends no LAN or cloud wake and
+performs no readiness polling. Releasing when this tool has no hold is a
+successful no-op; an unreachable camera produces an SSH error.
+
+SSH uses root, key authentication, and the normal SSH host-key policy. Use
+`--identity PATH` for a private key and `--ssh-port PORT` for another port. The
+local OpenSSH client is required. Stock firmware has no SSH server.
+
+The helper checks the exact supported CP4 `ezapp` hash before accessing its RAM
+sleep flag. It records ownership in `/tmp/cp4-wake-hold`, including the process
+ID, process start time and a unique token. Existing holds are refused: release
+first to change the duration. A sleep flag already disabled by another tool
+is also refused and will not be released by this helper.
+
+A detached camera-side worker reasserts the RAM flag once per second because
+`ezapp` can re-enable sleep shortly after wake. Both timed and indefinite holds
+use this worker and survive client disconnects. Timed holds restore sleep
+permission at their MCU-independent Linux-uptime deadline; indefinite holds run
+until released. Ownership checks prevent an old worker from changing a newer
+hold. Neither kind survives Linux reboot or power loss. Holds
+change RAM only, with no saved policy, boot-hook or firmware changes. Keeping
+the camera awake increases battery use. Releasing permits sleep; it does not
+force immediate sleep.
+
+The JSON `hold` object reports `ok`, `status`, and an error when applicable.
+Wake can succeed while hold setup fails; this returns a nonzero exit status.
+An SSH timeout can leave the remote result uncertain and is never automatically
+retried. Sleep permission may be restored before a release confirmation reaches
+the client. After timed expiry, SSH becoming unreachable is consistent with
+sleep but does not independently confirm restoration. `--dry-run` makes no
+connections and describes the requested hold or release.
 
 ## Sleep behavior and limits
 

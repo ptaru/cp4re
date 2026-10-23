@@ -28,6 +28,12 @@ Examples:
     python tools/wake.py --host 192.168.1.50 --serial ABC12345 \\
         --account you@example.com --method auto
 
+    # Wake and keep awake until released (or rebooted)
+    python tools/wake.py --host 192.168.1.50 --method lan --hold forever
+
+    # Release without sending a wake
+    python tools/wake.py --host 192.168.1.50 --release-hold
+
     # Cloud only, no LAN verification
     python tools/wake.py --serial ABC12345 --account you@example.com \\
         --method cloud
@@ -43,6 +49,8 @@ import socket
 import sys
 import time
 from pathlib import Path
+
+from wake_hold import run_hold
 
 DEFAULT_LAN_PORT = 50161
 DEFAULT_PAYLOAD = "50030000bd0c2f"
@@ -140,6 +148,27 @@ def cloud_wake(client, serial: str, mode: str, preview_timeout: float) -> dict:
     return result
 
 
+def emit_report(report: dict, output: str | None) -> None:
+    text = json.dumps(report, indent=2) + "\n"
+    if output:
+        target = Path(output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        target.chmod(0o600)
+    print(text, end="")
+
+
+def finish_wake(report: dict, args) -> int:
+    ok = bool(report.get("woke"))
+    if args.hold is not None and ok:
+        report["hold"] = run_hold(args.host, args.hold, args.ssh_port, args.identity)
+        ok = report["hold"]["ok"]
+    emit_report(report, args.json_out)
+    return 0 if ok else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -169,7 +198,40 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true",
                         help="print the plan without sending anything")
     parser.add_argument("--json-out", help="write the report here (mode 0600)")
+    holds = parser.add_mutually_exclusive_group()
+    holds.add_argument("--hold", metavar="SECONDS|forever",
+                       help="inhibit sleep for 1..300 seconds or until released/rebooted")
+    holds.add_argument("--release-hold", action="store_true",
+                       help="release this tool's hold over SSH without waking")
+    parser.add_argument("--ssh-port", type=int, default=DEFAULT_SSH_PORT)
+    parser.add_argument("--identity", help="SSH private key for hold/release (default: SSH config/agent)")
     args = parser.parse_args()
+
+    if args.hold is not None:
+        if args.hold != "forever":
+            try:
+                args.hold = int(args.hold)
+            except ValueError:
+                parser.error("--hold must be 1..300 or forever")
+            if not 1 <= args.hold <= 300:
+                parser.error("--hold must be 1..300 or forever")
+        if args.wait <= 0:
+            parser.error("--hold requires a positive --wait")
+    if (args.hold is not None or args.release_hold) and not args.host:
+        parser.error("hold/release requires --host")
+    if not 1 <= args.ssh_port <= 65535:
+        parser.error("invalid --ssh-port")
+    if args.host and (args.host.startswith("-") or any(c.isspace() for c in args.host) or "@" in args.host):
+        parser.error("--host must be a hostname or IP address")
+    if args.release_hold:
+        if args.dry_run:
+            print(json.dumps({"release_hold": {"host": args.host, "ssh_port": args.ssh_port},
+                              "would_wake": False}, indent=2))
+            return 0
+        report = {"host": args.host, "wake_attempted": False,
+                  "hold": run_hold(args.host, None, args.ssh_port, args.identity)}
+        emit_report(report, args.json_out)
+        return 0 if report["hold"]["ok"] else 1
 
     if args.method == "lan" and not args.host:
         parser.error("--method lan requires --host")
@@ -188,7 +250,8 @@ def main() -> int:
     if not 1 <= len(payload) <= 1400:
         parser.error("payload must be 1..1400 bytes")
 
-    check_ports_list = args.check_port or [DEFAULT_SSH_PORT, DEFAULT_SHELL_PORT]
+    check_ports_list = ([args.ssh_port] if args.hold is not None else
+                        args.check_port or [DEFAULT_SSH_PORT, DEFAULT_SHELL_PORT])
     report: dict = {
         "host": args.host,
         "serial": args.serial,
@@ -213,6 +276,7 @@ def main() -> int:
                 "mode": args.cloud_mode,
             },
             "check_ports": check_ports_list,
+            "hold": {"duration": args.hold, "ssh_port": args.ssh_port} if args.hold is not None else None,
         }, indent=2))
         return 0
 
@@ -223,8 +287,7 @@ def main() -> int:
             report["ports"] = already
             report["woke"] = True
             report["via"] = "already-awake"
-            print(json.dumps(report, indent=2))
-            return 0
+            return finish_wake(report, args)
 
     woke = False
     via = None
@@ -252,7 +315,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             report["woke"] = False
-            print(json.dumps(report, indent=2))
+            emit_report(report, args.json_out)
             return 1
         try:
             from pyezvizapi.client import EzvizClient
@@ -274,7 +337,7 @@ def main() -> int:
         except Exception as error:  # noqa: BLE001
             print(f"error: cloud login failed: {error}", file=sys.stderr)
             report["cloud"] = {"login": False, "error": str(error)}
-            print(json.dumps(report, indent=2))
+            emit_report(report, args.json_out)
             return 1
         print("cloud login OK", file=sys.stderr, flush=True)
         report["cloud"] = {"login": True}
@@ -305,16 +368,7 @@ def main() -> int:
     if args.host:
         report["ports"] = check_ports(args.host, check_ports_list, timeout=0.75)
 
-    text = json.dumps(report, indent=2) + "\n"
-    if args.json_out:
-        target = Path(args.json_out)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as handle:
-            handle.write(text)
-        target.chmod(0o600)
-    print(text, end="")
-    return 0 if woke else 1
+    return finish_wake(report, args)
 
 
 if __name__ == "__main__":
