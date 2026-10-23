@@ -36,11 +36,16 @@ firmware images. The tools take those values from you at run time.
 The network tools print progress to stderr and a JSON summary to stdout, so
 `python tools/wake.py ... | jq .` works. Use `--json-out` to save a report.
 
+The [`examples/app0/`](examples/app0/) directory contains the TinySSH
+non-multiuser patch, `inetd.conf`, initrun additions, and a build template for
+the key-only SSH setup. See [app0 SSH](docs/APP0-SSH.md).
+
 Deeper notes:
 
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.
 - [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, evidence, and limits.
 - [Firmware](docs/FIRMWARE.md) — the `.dav` container, acquisition protocol, app image format, build and installation procedure, and recovery.
+- [app0 SSH](docs/APP0-SSH.md) — patching TinySSH for the non-multiuser kernel, the app0 layout, and the initrun changes.
 - [Protocol](docs/PROTOCOL.md) — the legacy channel-99 authentication and firmware-query protocol.
 
 ---
@@ -269,6 +274,9 @@ validated.
 - **Never write OTP or `cipher_otp.bin`.** OTP writes are irreversible.
 - **Treat captures and identities as private.** The device identity is stable
   even though it is not a password. The verification code is a credential.
+- **The SSH image is a credential.** If you bake a host key or authorized key
+  into app0, keep that image private and restrict 2222 to your LAN. See
+  [app0 SSH](docs/APP0-SSH.md).
 - **No vendor affiliation.** This is independent research. EZVIZ has not
   endorsed or supported it.
 
@@ -287,7 +295,9 @@ Demonstrated on the tested unit:
 - The `.dav` container and app trailer can be parsed, rebuilt, and verified
   offline; an app-only modified image installed and booted through Local
   Upgrade with no trailer-version gate.
-- A custom app image can provide key-only SSH on 2222 from `initrun.sh`.
+- A custom app image can provide key-only SSH on 2222 from `initrun.sh`. The
+  patch, app0 layout, and init script are documented in
+  [app0 SSH](docs/APP0-SSH.md).
 
 Not established:
 
@@ -317,10 +327,17 @@ public/
 │   ├── dav.py
 │   ├── make_firmware.py
 │   └── probe.py
+├── examples/
+│   └── app0/
+│       ├── inetd.conf
+│       ├── initrun-additions.sh
+│       ├── tinyssh-cp4-nonmultiuser.patch
+│       └── build-tinyssh.sh
 └── docs/
     ├── PLATFORM.md
     ├── WAKE.md
     ├── FIRMWARE.md
+    ├── APP0-SSH.md
     └── PROTOCOL.md
 ```
 

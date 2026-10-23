@@ -215,6 +215,11 @@ string, etc.), rebuilds the entry table, recomputes every additive checksum,
 pads the SquashFS to 4096 bytes, refreshes the trailer image sum, and enforces
 the 6 MiB partition limit. It refuses to write an image that does not verify.
 
+For a worked app change, see [app0 SSH](APP0-SSH.md): it adds TinySSH
+(key-only, TCP 2222), its host/authorized keys, `inetd.conf`, and the
+`initrun.sh` block, and documents the non-multiuser patch the camera kernel
+requires.
+
 ### Recovery image
 
 A recovery package keeps the base's original app contents and only raises the

@@ -125,7 +125,7 @@ useful context:
 | --- | --- |
 | LAN wake | Proven in three WAN-isolated tests; no cloud or account needed at wake time. |
 | Cloud wake | Proven through the live-view preview handshake; the IoT SpeedUp action alone was not reliable. |
-| Root shell | Key-only SSH on 2222 after installing a modified app0 image; SD hook as a fallback. |
+| Root shell | Key-only SSH on 2222 after installing a modified app0 image; SD hook as a fallback. The build recipe is in [app0 SSH](APP0-SSH.md). |
 | Local upgrade | App-only modified images install and boot; no trailer-version gate was observed. |
 | Firmware acquisition | Device-authenticated MQTT query returned the installed package and an HTTPS URL with MD5/size. |
 | Recovery | Packages exist, but bootloader/card recovery and slot fallback were not validated. |
