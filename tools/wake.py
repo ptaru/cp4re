@@ -13,8 +13,10 @@ Cloud path (proven fallback):
     IoT action is also available, but it was not sufficient by itself in the
     first controlled test; prefer the preview handshake.
 
-No serial, host, account, password, or token is stored. Pass the serial and
-host explicitly. Credentials are read from EZVIZ_PASSWORD or a hidden prompt.
+No credentials are stored, and the serial and host have no defaults. Pass them
+explicitly. The account password is read from EZVIZ_PASSWORD or a hidden
+prompt. --json-out writes the report you request, including the supplied
+serial and host.
 
 Examples:
     # LAN only
