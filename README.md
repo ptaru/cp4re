@@ -36,6 +36,7 @@ firmware images. The tools take those values from you at run time.
 | [`tools/hi3861_flash/`](tools/hi3861_flash/) | Candidate-pinned Go launcher, preparation probe and explicit MCU updater entry point. |
 | [`tools/hi3861_diag/`](tools/hi3861_diag/) | Read receiver snapshots with a temporary Linux RAM reply patch. |
 | [`tools/video_server/`](tools/video_server/) | Standalone HEVC/AAC HTTP server with client-driven sleep holds; deploy with OEM or patched CP4 LAN wake. |
+| [`plugins/cp4-camera/`](plugins/cp4-camera/) | Scrypted on-demand UDP wake, live video, snapshots, and HomeKit integration. |
 | [`tools/probe.py`](tools/probe.py) | Read-only TCP probe for the documented service states. |
 
 The wake and firmware network tools print progress to stderr and a JSON summary to stdout, so
@@ -50,6 +51,7 @@ Deeper notes:
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.
 - [Wake and sleep](docs/WAKE.md) — OEM and patched LAN profiles, cloud wake, timed/indefinite holds and troubleshooting.
 - [Standalone video server PoC](docs/VIDEO-SERVER.md) — build, deployment, HEVC/AAC playback, client-driven sleep holds, validation and troubleshooting.
+- [Scrypted camera plugin](docs/SCRYPTED.md) — SD autostart prerequisites, build/deploy, WebRTC viewing, HomeKit Accessory Mode / V3, and sleep troubleshooting.
 - [Firmware](docs/FIRMWARE.md) — the `.dav` container, acquisition protocol, app image format, build and installation procedure, and recovery.
 - [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the independent receiver, Wi-Fi prewake, exact image build, pinned flash launcher and diagnostics.
 - [app0 SSH](docs/APP0-SSH.md) — patching TinySSH for the non-multiuser kernel, the app0 layout, and the initrun changes.
@@ -87,6 +89,7 @@ Deeper notes:
 | TCP **2222** | Key-only SSH **only after** a custom app image is installed. Stock firmware does not expose it. |
 | TCP 2323 | Historical raw root shell in early custom images; removed in the current design. |
 | 127.0.0.1 TCP **7001** | Internal `ezapp` `da_info` diagnostic/control service. Loopback only. |
+| TCP **8080** | Optional SD video server: HEVC/AAC over HTTP MPEG-PS; active viewers hold Linux awake. |
 | TCP **8000** | Proprietary HCNetSDK listener, available only after an experimental in-RAM start. Not persisted. |
 | UDP 37020 | SADP discovery, started with the experimental SDK helper. |
 | Outbound TCP **8666** | Cloud bootstrap/authentication. |
@@ -339,6 +342,10 @@ Demonstrated on the tested unit:
   snapshots and supported HCC calls passed with Linux instruction restoration
   verified. See the [receiver reference](docs/HI3861-LAN-PATCH.md).
 
+- SD boot-hook video startup, Scrypted snapshots and live viewing, and Apple
+  Home playback with HomeKit Accessory Mode / protocol V3. See
+  [the Scrypted guide](docs/SCRYPTED.md) for setup and observed limits.
+
 Not established:
 
 - Cold startup with no prior cloud contact, long-term sleep/wake reliability,
@@ -346,8 +353,9 @@ Not established:
 - The same wake payload, update policy, secure-boot state, or shell route on
   other CP4 revisions, models, or firmware versions.
 - A validated recovery path for a boot-looping modified image.
-- A working RTSP server. The [standalone video PoC](docs/VIDEO-SERVER.md)
-  serves HTTP MPEG-PS; the internal port-8000 SDK path remains experimental.
+- A camera-native RTSP server. The [standalone video PoC](docs/VIDEO-SERVER.md)
+  serves HTTP MPEG-PS; Scrypted can rebroadcast it as RTSP on the host.
+  The internal port-8000 SDK path remains experimental.
 - The exact PIR sensor wiring, the FM33 wake line, and the full inter-unit
   transport.
 - Hi3861L flash readback, measured prewake expiry/power, long-term patched
@@ -381,8 +389,11 @@ public/
 │   │   ├── PROVENANCE.json
 │   │   └── README.md
 │   └── probe.py
+├── plugins/
+│   └── cp4-camera/       # On-demand Scrypted integration
 ├── examples/
 │   └── app0/
+│       ├── cp4-hook-video.sh
 │       ├── inetd.conf
 │       ├── initrun-additions.sh
 │       ├── tinyssh-cp4-nonmultiuser.patch
@@ -392,6 +403,8 @@ public/
     ├── WAKE.md
     ├── FIRMWARE.md
     ├── HI3861-LAN-PATCH.md
+    ├── VIDEO-SERVER.md
+    ├── SCRYPTED.md
     ├── APP0-SSH.md
     └── PROTOCOL.md
 ```

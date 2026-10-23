@@ -206,3 +206,36 @@ procedure.
   `ssh -T -p 2222 root@HOST /bin/sh -i`
 - Recovery is still not validated beyond app0. Keep the official package and
   a recovery image on separate SD cards.
+
+## Optional SD boot hook
+
+The tested app0 init launches TinySSH before the SD wait, then runs the following
+block in the background. The TinySSH additions alone do not install this block;
+include it in your custom init image if it is absent. Check the installed
+`/dav/initrun.sh` rather than assuming that every custom image has the hook.
+
+```sh
+(
+  i=0
+  while [ $i -lt 120 ]; do
+    grep -q ' /mnt/mmc01 ' /proc/mounts && break
+    i=$((i+1))
+    sleep 1
+  done
+  if [ -f /mnt/mmc01/cp4-hook.sh ]; then
+    awk '{ sub(/\r$/, ""); print }' /mnt/mmc01/cp4-hook.sh > /tmp/cp4-hook.sh 2>/dev/null
+    sh /tmp/cp4-hook.sh >> /mnt/mmc01/cp4-hook.log 2>&1 &
+  fi
+) &
+```
+
+The hook runs as root once per Linux boot. Wake-from-sleep on the tested unit
+boots Linux again, so it reruns the hook. The script is copied to `/tmp` with
+CRLF normalized and invoked using `sh`; its executable bit is unnecessary.
+The SD card is therefore a persistent root-code path and should remain private.
+SSH stays available independently of a missing SD card or hook.
+
+A hook can launch services as well as provide an SSH fallback. The
+[video hook example](../examples/app0/cp4-hook-video.sh) launches the SD video
+server; see [automatic video startup](VIDEO-SERVER.md#automatic-start-from-sd).
+It relies on app0 SSH and does not install a separate SD SSH fallback.

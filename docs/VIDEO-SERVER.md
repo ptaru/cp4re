@@ -95,9 +95,9 @@ to connect. After the first valid streaming request:
 - Pending or incomplete HTTP connections do not extend the hold.
 
 The server remains available while Linux is awake. Normal sleep stops Linux;
-waking starts Linux again, so the server must be relaunched with `deploy.py`.
-The executable stays on SD, but this deployment does not modify the boot hook,
-flash, or saved configuration. It is not an automatically starting service.
+waking starts Linux again. The manual deployer does not modify boot hooks, so
+manual deployments need relaunching after wake. The optional SD hook below
+automatically launches the retained executable on each Linux boot.
 
 A separate guardian checks the exact `ezapp` executable and reasserts the hold
 every two seconds. Server exit, crash, or `SIGKILL` closes its command pipe,
@@ -105,6 +105,45 @@ and the guardian restores sleep permission independently. The server assumes
 **exclusive ownership of the sleep flag**: do not run it alongside the public
 wake tool's timed/indefinite hold worker or another hold manager. Killing the
 guardian itself with `SIGKILL` cannot execute cleanup.
+
+## Automatic start from SD
+
+With an app0 image that invokes `/mnt/mmc01/cp4-hook.sh` after mounting the
+card, the binary and hook can live entirely on SD. This was demonstrated on
+the tested unit on 23–24 October 2026. No additional flash change is needed
+if that hook invocation is already in the installed init script. See
+[the app0 hook contract](APP0-SSH.md#optional-sd-boot-hook).
+
+Build the server, then copy these files to the card root:
+
+| Repository file | SD path |
+| --- | --- |
+| `tools/video_server/cp4-video-arm` | `/mnt/mmc01/cp4-video` |
+| `examples/app0/cp4-hook-video.sh` | `/mnt/mmc01/cp4-hook.sh` |
+
+Keep the card mounted while copying. Ensure the binary is executable (the
+tested FAT mount supplies executable permissions). Merge with an existing
+hook if it performs other tasks; do not overwrite unrelated startup logic.
+The example checks the supported ezapp MD5, waits for the app process, avoids
+a duplicate server using the PID file, and launches on port 8080. It writes
+`/tmp/cp4-video.pid` and `/tmp/cp4-video.log`. App0 appends hook output to
+`/mnt/mmc01/cp4-hook.log`. This is a one-shot launcher, not a crash supervisor.
+
+Staging these files does not run the hook in the current boot. It takes effect
+on the next Linux boot. For a manual test while awake, run
+`sh /mnt/mmc01/cp4-hook.sh` over SSH only after releasing any separate hold
+worker. Do not start the server alongside a timed/forever wake hold.
+
+Once installed, a player can use wake followed by the retained HTTP service:
+
+```sh
+python3 tools/wake.py --host 192.168.1.50 --protocol cp4 --method lan --check-port 8080
+ffplay http://192.168.1.50:8080/live.ps
+```
+
+For automatic wake and viewing through Scrypted, see
+[the Scrypted plugin guide](SCRYPTED.md). The plugin sends UDP directly and
+requires no host-side Python or SSH at runtime.
 
 ## Capture, inspect, and stop
 
@@ -214,8 +253,10 @@ PTS 30 seconds in two runs. The cause remains unresolved; its repeating source
 timestamp suggests a startup transition, but that is an inference. The clean
 steady-state test does not establish flawless playback immediately after boot.
 
-This is a manual research service with exact-firmware offsets, no HTTP access
-control, no automatic boot integration, and no long-term reliability claim.
+This is a research service with exact-firmware offsets, optional SD boot
+integration, no HTTP access control, and no long-term reliability claim.
+Scrypted browser snapshots, live playback, and HomeKit Accessory Mode / protocol
+V3 playback were subsequently demonstrated; see [Scrypted](SCRYPTED.md).
 
 ## Troubleshooting
 
@@ -229,7 +270,7 @@ control, no automatic boot integration, and no long-term reliability claim.
 | Deployment code 20 | Unsupported `ezapp` hash; fixed memory offsets must not be applied to another binary. |
 | Deployment code 21 | Invalid saved PID file; inspect `/tmp/cp4-video.pid`. |
 | Deployment code 23 or 24 | Server exited or did not become ready; inspect `/tmp/cp4-video.log`. |
-| URL stops after idle / wake | Normal sleep restarts Linux. Redeploy; the binary alone does not provide boot persistence. |
+| URL stops after idle / wake | Normal sleep restarts Linux. Install the SD boot hook or redeploy manually; the binary alone does not provide boot persistence. |
 | Player cannot identify codecs | Use an HEVC/AAC MPEG-PS-capable player and inspect the log; browser playback is not implemented. |
 | Brief corruption shortly after boot | Known disruption near source PTS 30 seconds; compare a capture joined after startup. |
 

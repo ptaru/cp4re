@@ -6,6 +6,7 @@ prebuilt binary.
 
 | File | Use |
 | --- | --- |
+| `cp4-hook-video.sh` | Optional SD-root `cp4-hook.sh` to launch the video server; requires the app0 hook block and SD binary. |
 | `inetd.conf` | Copy to `/dav/inetd.conf` in the app image. |
 | `initrun-additions.sh` | Insert into `initrun.sh` after `/dav` is mounted and before the SD wait. |
 | `tinyssh-cp4-nonmultiuser.patch` | Apply to the TinySSH source before building. |
