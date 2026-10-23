@@ -17,6 +17,8 @@ venv/
 unpacked/
 app-root/
 firmware-*/
+hi3861-unpacked/
+hi3861-patch/
 custom.dav
 recovery.dav
 

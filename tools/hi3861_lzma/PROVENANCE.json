@@ -1,0 +1,74 @@
+{
+  "purpose": "Minimal public-domain LZMA SDK subset used by hi3861_ota.py patch. The C harnesses in this directory are project code; the SDK files are unmodified upstream sources.",
+  "archives": {
+    "lzma1900.7z": {
+      "url": "https://www.7-zip.org/a/lzma1900.7z",
+      "sha256": "00f569e624b3d9ed89cf8d40136662c4c5207eaceb92a70b1044c77f84234bad",
+      "license": "LZMA SDK is placed in the public domain by Igor Pavlov."
+    },
+    "lzma920.tar.bz2": {
+      "url": "https://www.7-zip.org/a/lzma920.tar.bz2",
+      "sha256": "8ac221acdca8b6f6dd110120763af42b3707363752fc04e63c7bbff76774a445",
+      "license": "LZMA SDK is placed in the public domain by Igor Pavlov."
+    }
+  },
+  "files": {
+    "sdk19/7zTypes.h": {
+      "archive": "lzma1900.7z", "path": "C/7zTypes.h",
+      "sha256": "cba4277d8cda4954ddb4ad1e2d91a3c119b27d6bde8e906c674f3532511c26f0"
+    },
+    "sdk19/Compiler.h": {
+      "archive": "lzma1900.7z", "path": "C/Compiler.h",
+      "sha256": "432fffe11231783e452fa0d7bbfc0412d6860e377291e00d54e0fdf01b029878"
+    },
+    "sdk19/CpuArch.c": {
+      "archive": "lzma1900.7z", "path": "C/CpuArch.c",
+      "sha256": "9ee42b2b7a8b17ae08db2e96a01e3bbac1fd4d95453c181b1ae82a9922a700fa"
+    },
+    "sdk19/CpuArch.h": {
+      "archive": "lzma1900.7z", "path": "C/CpuArch.h",
+      "sha256": "aa2ddb12dbf18df4e310e2105276ce29f5b5f6b67cace5f392c2c62c888f7afd"
+    },
+    "sdk19/LzFind.c": {
+      "archive": "lzma1900.7z", "path": "C/LzFind.c",
+      "sha256": "4134f28a20600e276769485576d39b8f9f719062273cb7371455b62713e8e23b"
+    },
+    "sdk19/LzFind.h": {
+      "archive": "lzma1900.7z", "path": "C/LzFind.h",
+      "sha256": "49d13c4edb9382b4598100166f0b91aedfc2e8a52df2921ed05fd5bfe755b2fa"
+    },
+    "sdk19/LzHash.h": {
+      "archive": "lzma1900.7z", "path": "C/LzHash.h",
+      "sha256": "8303c1c37c1bb07cc91a1300b7b7e7d89070981e030549d63126453194b477b6"
+    },
+    "sdk19/LzmaEnc.c": {
+      "archive": "lzma1900.7z", "path": "C/LzmaEnc.c",
+      "sha256": "fd005b39afd16459fd57006c20098ea1d5d3d03ccc6965b3c95f253ee0ec119f"
+    },
+    "sdk19/LzmaEnc.h": {
+      "archive": "lzma1900.7z", "path": "C/LzmaEnc.h",
+      "sha256": "474db10f1e485a744ecd560f7a9560a4e24888b46a34432910efd9b964c79299"
+    },
+    "sdk19/Precomp.h": {
+      "archive": "lzma1900.7z", "path": "C/Precomp.h",
+      "sha256": "3850ffe13cb2207dba1c037fe41a803303883aaeec1407052f6038c4e6722ace"
+    },
+    "sdk920/LzmaDec.c": {
+      "archive": "lzma920.tar.bz2", "path": "C/LzmaDec.c",
+      "sha256": "b63e1c33d273cf4460da8bb94b148dfdf067e6ad3c4dd1725e33c5ceb1aefe3d"
+    },
+    "sdk920/LzmaDec.h": {
+      "archive": "lzma920.tar.bz2", "path": "C/LzmaDec.h",
+      "sha256": "f43966ab7858974a38f7a6c3c7dade35bcfb8763811e9cfa8690f416e7efb819"
+    },
+    "sdk920/Types.h": {
+      "archive": "lzma920.tar.bz2", "path": "C/Types.h",
+      "sha256": "1e367ddb4e774cabcc8f44321215d6593fb02dd799a4c7cb2a83b7b456768154"
+    }
+  },
+  "notes": [
+    "SDK 19.00 is used only by encode.c. It reproduces the OEM compressed stream for the untouched CP4 kernel byte-for-byte.",
+    "SDK 9.20 is used only by decode.c as an independent streaming decoder check; it is not the on-chip ROM decoder.",
+    "The SDK subset includes only the files required to compile the two harnesses. No SDK executable or firmware image is included."
+  ]
+}

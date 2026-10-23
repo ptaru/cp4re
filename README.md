@@ -31,6 +31,8 @@ firmware images. The tools take those values from you at run time.
 | [`tools/device_id.py`](tools/device_id.py) | Extract the 32-byte device identity from a bootstrap packet capture for `get_firmware.py`. |
 | [`tools/dav.py`](tools/dav.py) | Inspect, verify, unpack, diff, and repack the `SWKH` `.dav` firmware container, including the `app.img` trailer. |
 | [`tools/make_firmware.py`](tools/make_firmware.py) | Build a modified `.dav`: SquashFS an app filesystem, refresh the app trailer, replace `app.img`, and verify. |
+| [`tools/hi3861_ota.py`](tools/hi3861_ota.py) | Validate, unpack, and rebuild the CP4 Hi3861L MCU OTA. The builder is pinned to the documented 2.139 image and performs no device I/O. |
+| [`tools/hi3861_defense.py`](tools/hi3861_defense.py) | Decode and execute the Hi3861L LAN-wake defense routine offline to reproduce its counter behavior. Requires `capstone`. |
 | [`tools/probe.py`](tools/probe.py) | Read-only TCP probe for the documented service states. |
 
 The network tools print progress to stderr and a JSON summary to stdout, so
@@ -45,7 +47,7 @@ Deeper notes:
 - [Platform guide](docs/PLATFORM.md) — hardware, software, services, and the division of work between the SoCs and MCUs.
 - [Wake and sleep](docs/WAKE.md) — the LAN wake packet, cloud wake, timed/indefinite awake holds, repeated-wake limits, and troubleshooting.
 - [Firmware](docs/FIRMWARE.md) — the `.dav` container, acquisition protocol, app image format, build and installation procedure, and recovery.
-- [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the wake counter behavior, two-byte code change, OTA packaging, and MCU update path.
+- [Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md) — the wake counter behavior, two-byte code change, OTA packaging, offline builder, and MCU update path.
 - [app0 SSH](docs/APP0-SSH.md) — patching TinySSH for the non-multiuser kernel, the app0 layout, and the initrun changes.
 - [Protocol](docs/PROTOCOL.md) — the legacy channel-99 authentication and firmware-query protocol.
 
@@ -162,14 +164,17 @@ can be disrupted. Read [Protocol](docs/PROTOCOL.md) before using
 
 - Python **3.12+** (`pyezvizapi` requires it).
 - `pip install -r requirements.txt` for `pyezvizapi` (cloud wake, protocol
-  helpers) and `cryptography`.
+  helpers), `cryptography`, and `capstone` (Hi3861 defense emulation).
+- A C compiler (`cc`/`clang`/`gcc`) only for `hi3861_ota.py patch`, which
+  compiles the bundled public-domain LZMA SDK helpers.
 - `squashfs-tools` (`mksquashfs`, `unsquashfs`) only for building or unpacking
   app images.
 - `tcpdump`/`editcap` only for capturing a bootstrap exchange.
 
-The container, capture, and probe tools use only the Python standard library.
-`get_firmware.py` and the cloud path of `wake.py` use `pyezvizapi`, which
-depends on `cryptography`.
+The container, capture, probe, and `hi3861_ota.py` tools use only the Python
+standard library. `get_firmware.py` and the cloud path of `wake.py` use
+`pyezvizapi`, which depends on `cryptography`; `hi3861_defense.py` uses
+`capstone`.
 
 ### Wake the camera
 
@@ -259,6 +264,25 @@ official package and a recovery image on separate SD cards, do not touch
 `app1`, `uboot`, OTP/`enc`, or `/devinfo`, and remember that recovery is not
 validated.
 
+### Inspect and patch the MCU image
+
+The Hi3861L application OTA is a file inside the extracted app filesystem
+(`/dav/Hi3861L_ezviz_sdk_ota.bin` on the camera):
+
+```sh
+python tools/hi3861_ota.py info app-root/Hi3861L_ezviz_sdk_ota.bin
+python tools/hi3861_ota.py unpack app-root/Hi3861L_ezviz_sdk_ota.bin \
+  --out hi3861-unpacked
+python tools/hi3861_ota.py patch app-root/Hi3861L_ezviz_sdk_ota.bin \
+  --out hi3861-patch
+python tools/hi3861_defense.py hi3861-patch/Hi3861L_CP4_lan_patch_ota.bin
+```
+
+`hi3861_ota.py patch` needs a C compiler. It refuses any source other than the
+exact 2.139 image and writes an offline image only; it does not install it.
+`hi3861_defense.py` needs `capstone` and only analyzes a matching kernel. See
+[Hi3861L LAN-wake patch](docs/HI3861-LAN-PATCH.md#tooling).
+
 ---
 
 ## Safety
@@ -338,6 +362,15 @@ public/
 │   ├── device_id.py
 │   ├── dav.py
 │   ├── make_firmware.py
+│   ├── hi3861_ota.py
+│   ├── hi3861_defense.py
+│   ├── hi3861_lzma/
+│   │   ├── encode.c
+│   │   ├── decode.c
+│   │   ├── sdk19/
+│   │   ├── sdk920/
+│   │   ├── PROVENANCE.json
+│   │   └── README.md
 │   └── probe.py
 ├── examples/
 │   └── app0/
@@ -358,4 +391,6 @@ public/
 
 MIT. See [LICENSE](LICENSE). The firmware and protocol observations are
 independent research; vendor firmware and trademarks remain the property of
-their owners.
+their owners. The LZMA SDK subset under `tools/hi3861_lzma/sdk19/` and
+`tools/hi3861_lzma/sdk920/` is public domain and retains its upstream headers;
+see [PROVENANCE.json](tools/hi3861_lzma/PROVENANCE.json).

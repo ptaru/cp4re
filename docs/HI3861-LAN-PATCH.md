@@ -7,9 +7,10 @@ sleep arming and normal GPIO wake handling.
 The addresses and image hashes below apply to the CP4 Hi3861L application
 version **2.139**. The patched image was installed on a CP4 and supports normal
 boot, Wi-Fi, SSH and LAN wake. Sleep followed by LAN wake also worked after
-200 paced wake packets, supporting the patch's intended behavior. The firmware
-builder, patched binary and flash
-launcher are not included in this repository.
+200 paced wake packets, supporting the patch's intended behavior. The patched
+binary and flash launcher are not included in this repository. The offline
+builder and analysis tools in `tools/` can reproduce the image but cannot
+install it.
 
 ## Wake counter behavior
 
@@ -68,7 +69,9 @@ application OTA, separate from the camera `.dav` package and the flashboot OTA.
 | Item | Value |
 | --- | --- |
 | Source SHA-256 | `e01c4867892f611326c4935abdcfb1d9a6c19629f2953b0cd441fb36578596c2` |
+| Source expanded SHA-256 | `ca5e1a57ff4b4f056f1a279fc0e902605126fd9651444ea9f84096d74bf6d788` |
 | Patched OTA SHA-256 | `5eb5d27c9ac86fc0d9b7a6dc627a5ec1b910e1ccd65290dd7e8e5d0f29f9e734` |
+| Patched expanded SHA-256 | `1ae9f741ce873e2b4aa3f67d73e917b1ca2fa3ff57fb891a308ae80ccc68defb` |
 | OTA size | 552,528 bytes, unchanged |
 | Expanded image size | 911,792 bytes |
 | Expanded differences | Two instruction bytes and the 32-byte inner section hash |
@@ -98,6 +101,45 @@ and RSA/ECC verification using eFuse configuration. The source packages contain
 plain SHA-256 hashes. Recalculating these hashes applies to the hash-only path;
 it does not satisfy RSA/ECC verification. The live eFuse byte has not been read.
 The patch changes neither eFuse nor the bootloader.
+
+## Tooling
+
+The offline parts of this work are included:
+
+- [`tools/hi3861_ota.py`](../tools/hi3861_ota.py) validates an OTA, extracts
+  the expanded kernel, and rebuilds the two-byte patch. It accepts only the
+  source hash above. The builder compiles the pinned public-domain LZMA SDK
+  sources in [`tools/hi3861_lzma/`](../tools/hi3861_lzma/), requires the
+  encoder to reproduce the OEM stream byte-for-byte, and checks the result
+  with the independent SDK 9.20 decoder. It needs a C compiler and performs no
+  device I/O.
+- [`tools/hi3861_defense.py`](../tools/hi3861_defense.py) decodes and executes
+  the defense routine's actual instructions to reproduce the counter
+  scenarios above. It accepts the OTA or an unpacked `kernel.bin` and requires
+  `capstone` (`pip install capstone`). Add `--listing` to show the decoded
+  defense routine and the receiver gate around `0x420dc4`.
+
+Extract the MCU OTA from the camera package first, then inspect or rebuild it:
+
+```sh
+python tools/dav.py unpack firmware.dav unpacked/
+python tools/dav.py unpack-app unpacked/app.img app-root/
+python tools/hi3861_ota.py info app-root/Hi3861L_ezviz_sdk_ota.bin
+python tools/hi3861_ota.py unpack app-root/Hi3861L_ezviz_sdk_ota.bin \
+  --out hi3861-unpacked
+python tools/hi3861_ota.py patch app-root/Hi3861L_ezviz_sdk_ota.bin \
+  --out hi3861-patch
+python tools/hi3861_defense.py hi3861-patch/Hi3861L_CP4_lan_patch_ota.bin
+```
+
+The file is `/dav/Hi3861L_ezviz_sdk_ota.bin` on the camera; in the extracted
+`app-root/` it is at the top level.
+
+`patch` writes `Hi3861L_CP4_lan_patch_ota.bin`, its `kernel.bin`, and a
+`manifest.json` with the hashes, LZMA checks and independent decoder results.
+The output is the image summarized above; the tool refuses a different source
+or a different result. It does not install anything. The installation path below is separate,
+uses the OEM updater, and has no validated recovery.
 
 ## Installation path
 

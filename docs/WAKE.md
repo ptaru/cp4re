@@ -193,7 +193,8 @@ refusal. After 200 matching packets sent at 50 ms intervals during an indefinite
 hold, SSH remained available; subsequent sleep and LAN wake also worked. This
 supports the patch working in practice. MCU code/counters were not read back and
 long-term reliability remains untested. The patch requires a separate MCU
-update; its binary and launcher are not included here.
+update; its patched binary and launcher are not included here, but the offline
+builder is `tools/hi3861_ota.py`.
 
 ## Troubleshooting
 
