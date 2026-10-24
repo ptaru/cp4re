@@ -19,7 +19,7 @@ specification.
 | Audio | **AAC, 16 kHz, mono** in the observed live output. |
 | Display | 4.3-inch LCD (`disp_ifpa_lcd1_sat043at45dgg`). |
 | Touch | Userspace I2C bus 2, slave `0x38`, plus `/dev/hikio`. Register layout resembles FT6x06; the exact controller was not identified. |
-| Storage | Removable SD card at `/mnt/mmc01`. FAT32 was used for the tested upgrade and hook workflow. |
+| Storage | Removable SD card at `/mnt/mmc01`. FAT32 was used for the tested upgrade and hook workflow. Recording uses preallocated 256 MiB segment rings (427 video + 47 picture), so the card reports ~100% used by design; a card "format" is a quick format, not an erase. |
 | RAM | Kernel reports about 141 MB available. A 110 MiB media zone spans `0x09200000`–`0x10000000`, consistent with a 256 MiB layout; fitted DRAM was not physically identified. |
 | Application flash | `app0` is a 6 MiB partition (`mtd10`). |
 
